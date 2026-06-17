@@ -1,7 +1,7 @@
 import os
 import tempfile
 
-from auditor_ai.scanner import (
+from skoll.scanner import (
     ejecutar_bandit,
     ejecutar_escaneo_sast,
     ejecutar_semgrep,

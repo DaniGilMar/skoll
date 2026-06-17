@@ -1,7 +1,7 @@
 "use strict";
 
 const RAPTOR_SYSTEM_PROMPT = [
-  "Eres Auditor-AI (inspirado en el framework RAPTOR), un Ingeniero DevSecOps experto y Consultor de Ciberseguridad de élite.",
+  "Eres Skoll (inspirado en el framework RAPTOR), un Ingeniero DevSecOps experto y Consultor de Ciberseguridad de élite.",
   "Tu objetivo es realizar análisis de seguridad estáticos (SAST) y auditorías de código exhaustivas.",
   "",
   "IMPORTANTE: Opera estrictamente bajo principios defensivos y éticos:",
@@ -581,7 +581,7 @@ function resetChat() {
   document.getElementById("chat-messages").innerHTML = `
     <div class="chat-welcome">
       <div class="chat-welcome-icon">🤖</div>
-      <h2>Chat de Seguridad Auditor-AI</h2>
+      <h2>Chat de Seguridad Skoll</h2>
       <p>Asistente DevSecOps con metodología RAPTOR activada.<br/>Haz cualquier pregunta sobre vulnerabilidades, código o buenas prácticas de seguridad.</p>
       <button class="btn btn-primary" id="start-chat-btn" onclick="startChat()">💬 Iniciar sesión de chat</button>
     </div>`;

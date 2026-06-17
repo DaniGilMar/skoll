@@ -1,13 +1,46 @@
 import os
 
-# Modelo de IA por defecto
-# Usamos gemini-2.5-flash por su rapidez y menor costo, pero permitimos configurar gemini-2.5-pro mediante variables
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+# Proveedor de IA por defecto: "groq" (compatible con API gratuita GroqCloud)
+DEFAULT_PROVIDER = os.getenv("AI_PROVIDER", "groq")
+
+# Modelo Gemini por defecto (fallback si Groq no está disponible)
+DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+# Modelo Groq — multi-model support (main + fast para tareas simples)
+GROQ_MODELS = {
+    "llama-3.3-70b-versatile": "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant": "llama-3.1-8b-instant",
+    "llama-4-scout-17b": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "qwen-3-32b": "qwen/qwen3-32b",
+    "mixtral-8x7b-32768": "mixtral-8x7b-32768",
+    "llama3-70b-8192": "llama3-70b-8192",
+    "llama3-8b-8192": "llama3-8b-8192",
+}
+
+# Modelo principal: análisis profundo (70B)
+DEFAULT_GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+# Modelo rápido: tareas simples (8B) — para SAGE recall, errores, etc.
+GROQ_FAST_MODEL = os.getenv("GROQ_FAST_MODEL", "llama-3.1-8b-instant")
+
+
+def get_fast_model(provider: str | None = None) -> str:
+    p = (provider or DEFAULT_PROVIDER).lower()
+    if p == "groq":
+        return GROQ_FAST_MODEL
+    return DEFAULT_GEMINI_MODEL
+
+
+def get_default_model(provider: str | None = None) -> str:
+    p = (provider or DEFAULT_PROVIDER).lower()
+    if p == "groq":
+        return DEFAULT_GROQ_MODEL
+    return DEFAULT_GEMINI_MODEL
 
 # Prompts de Sistema inspirados en RAPTOR y localizados a Español
 
 RAPTOR_SYSTEM_PROMPT = """
-Eres Auditor-AI (inspirado en el framework RAPTOR), un Ingeniero DevSecOps experto y Consultor de Ciberseguridad de élite.
+Eres Skoll (inspirado en el framework RAPTOR), un Ingeniero DevSecOps experto y Consultor de Ciberseguridad de élite.
 Tu objetivo es realizar análisis de seguridad estáticos (SAST) y auditorías de código exhaustivas sobre los scripts y proyectos que proporcione el usuario.
 
 IMPORTANTE: Opera estrictamente bajo principios defensivos y éticos:
@@ -58,7 +91,7 @@ Código a analizar:
 """
 
 CHAT_WELCOME_MESSAGE = """
-[bold green]¡Bienvenido a Auditor-AI CLI! 🛡️🤖[/bold green]
+[bold green]¡Bienvenido a Skoll CLI! 🛡️🤖[/bold green]
 Iniciando chat interactivo de seguridad inspirado en el framework RAPTOR...
 Las respuestas e instrucciones están adaptadas al español.
 Escribe [bold cyan]'salir'[/bold cyan] o usa [bold cyan]Ctrl+D[/bold cyan] para finalizar la sesión de chat.

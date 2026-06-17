@@ -1,7 +1,7 @@
 import os
 import tempfile
 
-from auditor_ai.verifier import (
+from skoll.verifier import (
     PLUGINS_REGISTRY,
     AstAnalyzerPlugin,
     BanditVerifierPlugin,

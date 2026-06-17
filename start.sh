@@ -2,7 +2,7 @@
 set -e
 
 echo "=============================="
-echo "  Auditor-AI - Launcher"
+echo "  Skoll - Launcher"
 echo "=============================="
 
 # Check if running inside the project directory

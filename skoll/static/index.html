@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Auditor-AI — Panel de Seguridad</title>
+  <title>Skoll — Panel de Seguridad</title>
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet" />
@@ -16,11 +16,13 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <div class="logo">
-        <span class="logo-icon">🛡️</span>
+        <img src="/static/logo.svg" alt="Skoll" class="logo-svg" />
         <div class="logo-text">
-          <h1>Auditor-AI</h1>
-          <span class="logo-sub">RAPTOR Security Suite</span>
+          <h1>Skoll</h1>
+          <span class="logo-sub">Viking Security</span>
         </div>
+      </div>
+    </div>
       </div>
     </div>
 
@@ -37,6 +39,9 @@
       <button class="nav-item" id="nav-chat" onclick="switchTab('chat')">
         <span class="nav-icon">💬</span><span>Chat de Seguridad</span>
       </button>
+      <button class="nav-item" id="nav-agent" onclick="switchTab('agent')">
+        <span class="nav-icon">🤖</span><span>Agente Autónomo</span>
+      </button>
     </nav>
 
     <div class="sidebar-footer">
@@ -44,12 +49,16 @@
         <span class="status-dot" id="status-dot"></span>
         <span id="status-text">Comprobando...</span>
       </div>
+      <div class="provider-select-wrapper">
+        <label for="global-provider">Proveedor</label>
+        <div class="provider-toggle">
+          <button class="toggle-btn active" id="prov-gemini" onclick="setProvider('gemini')">Gemini</button>
+          <button class="toggle-btn" id="prov-groq" onclick="setProvider('groq')">Groq</button>
+        </div>
+      </div>
       <div class="model-select-wrapper">
         <label for="global-model">Modelo</label>
-          <select id="global-model">
-            <option value="gemini-2.5-flash" selected>gemini-2.5-flash ⚡</option>
-            <option value="gemini-2.5-pro">gemini-2.5-pro 🧠 (cuota limitada)</option>
-          </select>
+          <select id="global-model"></select>
       </div>
     </div>
   </aside>
@@ -127,11 +136,53 @@
 
     <section class="tab-panel" id="tab-chat">
       <div class="chat-wrapper">
+        <div class="chat-header-bar">
+          <span class="chat-model-badge" id="model-badge">Selecciona un modelo</span>
+        </div>
         <div class="chat-messages" id="chat-messages"></div>
         <div class="chat-input-area">
           <textarea id="chat-input" placeholder="Pregunta de seguridad..." rows="1" disabled></textarea>
           <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()" disabled>Enviar</button>
         </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="tab-agent">
+      <div class="panel-body">
+        <div class="card">
+          <h2 class="card-title">🤖 Agente de Seguridad Autónomo</h2>
+          <p class="card-desc">El agente indexa tu proyecto, usa herramientas SAST y de pentest (nmap, nikto, gobuster, etc.), interpreta resultados y genera reportes — todo sin intervención manual.</p>
+
+          <div class="session-bar" id="session-bar">
+            <label for="session-select">Sesiones guardadas:</label>
+            <select id="session-select" class="text-input" style="flex:1;width:auto;">
+              <option value="">— Nueva sesión —</option>
+            </select>
+            <button class="btn btn-sm btn-secondary" id="session-load-btn" onclick="loadSession()" disabled>Cargar</button>
+            <button class="btn btn-sm btn-secondary" id="session-del-btn" onclick="deleteSession()" disabled>Eliminar</button>
+            <button class="btn btn-sm btn-secondary" onclick="refreshSessionList()">⟳</button>
+          </div>
+
+          <div class="input-group">
+            <input type="text" id="agent-path-input" class="text-input" placeholder="/ruta/al/proyecto" />
+            <button class="btn btn-primary" id="agent-start-btn" onclick="startAgent()">🚀 Iniciar Agente</button>
+          </div>
+          <div id="agent-controls" class="hidden">
+            <div class="agent-progress-bar">
+              <div class="agent-progress-fill" id="agent-progress-fill"></div>
+            </div>
+            <div class="agent-stats" id="agent-stats">
+              <span class="agent-stat"><strong>Iteración:</strong> <span id="agent-iteration">0</span></span>
+              <span class="agent-stat"><strong>Hallazgos:</strong> <span id="agent-findings-count">0</span></span>
+              <span class="agent-stat"><strong>Críticos:</strong> <span id="agent-critical-count">0</span></span>
+              <span class="agent-stat"><strong>Escaneados:</strong> <span id="agent-scanned-count">0</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="output-wrapper" id="agent-output-wrapper">
+        <div class="agent-log" id="agent-log"></div>
+        <div class="agent-running-tool hidden" id="agent-running-tool"></div>
       </div>
     </section>
 
@@ -143,15 +194,15 @@
     <div class="api-key-modal">
       <div class="api-key-modal-icon">🔑</div>
       <h2>Configurar API Key</h2>
-      <p>Introduce tu API Key de Google Gemini para usar Auditor-AI.</p>
-      <p class="api-key-hint">Consíguela gratis en <a href="https://aistudio.google.com/" target="_blank">aistudio.google.com</a></p>
+      <p id="api-key-prompt">Introduce tu API Key para usar Skoll.</p>
+      <p class="api-key-hint" id="api-key-hint">Selecciona un proveedor (Gemini o Groq) en el panel lateral.</p>
       <input type="text" id="api-key-input" class="text-input" placeholder="AIzaSy..." />
       <button class="btn btn-primary" id="api-key-btn" onclick="saveApiKey()">Guardar y conectar</button>
       <p class="api-key-error hidden" id="api-key-error">API Key inválida. Intenta de nuevo.</p>
     </div>
   </div>
 
-  <script src="/static/app.js?v=4"></script>
+  <script src="/static/app.js?v=6"></script>
 </body>
 
 </html>

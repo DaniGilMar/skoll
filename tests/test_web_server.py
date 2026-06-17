@@ -2,7 +2,7 @@ import os
 
 from fastapi.testclient import TestClient
 
-from auditor_ai.web_server import app
+from skoll.web_server import app
 
 client = TestClient(app)
 

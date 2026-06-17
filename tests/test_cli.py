@@ -2,7 +2,7 @@ import os
 
 from typer.testing import CliRunner
 
-from auditor_ai.main import app
+from skoll.main import app
 
 runner = CliRunner()
 
@@ -10,7 +10,7 @@ def test_help_command():
     """Verifica que el comando de ayuda se despliegue correctamente."""
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "Auditor-AI" in result.stdout
+    assert "Skoll" in result.stdout
     assert "chat" in result.stdout
     assert "analyze" in result.stdout
     assert "scan" in result.stdout

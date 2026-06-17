@@ -1,15 +1,15 @@
-from auditor_ai.config import (
+from skoll.config import (
     ANALYSIS_TEMPLATE_PROMPT,
     CHAT_WELCOME_MESSAGE,
-    DEFAULT_MODEL,
+    DEFAULT_GEMINI_MODEL,
     RAPTOR_SYSTEM_PROMPT,
 )
 
 
 def test_default_model():
-    assert DEFAULT_MODEL is not None
-    assert isinstance(DEFAULT_MODEL, str)
-    assert DEFAULT_MODEL.startswith("gemini")
+    assert DEFAULT_GEMINI_MODEL is not None
+    assert isinstance(DEFAULT_GEMINI_MODEL, str)
+    assert DEFAULT_GEMINI_MODEL.startswith("gemini")
 
 
 def test_raptor_system_prompt_contiene_etapas():
@@ -30,5 +30,5 @@ def test_analysis_template_contiene_raptor():
 
 
 def test_chat_welcome_message():
-    assert "Auditor-AI" in CHAT_WELCOME_MESSAGE
+    assert "Skoll" in CHAT_WELCOME_MESSAGE
     assert "RAPTOR" in CHAT_WELCOME_MESSAGE

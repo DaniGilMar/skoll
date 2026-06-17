@@ -3,21 +3,59 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Auditor-AI - RAPTOR Security Suite</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skoll - RAPTOR Security Suite</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 
 <body>
     <div class="main-container">
-        <div id="chat-output"
-            style="height: 400px; overflow-y: scroll; border: 1px solid #444; padding: 10px; margin-bottom: 10px; color: white;">
-            <p>Auditor-AI listo. Escribe una ruta o comando para analizar.</p>
+        <h1>🛡️ Skoll</h1>
+
+        <div id="setup-overlay">
+            <div class="setup-card">
+                <h2>🔐 Configuración de APIs</h2>
+                <p class="setup-desc">Para usar Skoll necesitas al menos una API Key. Introduce las que tengas:</p>
+
+                <div class="api-key-row">
+                    <div class="key-label">🔑 <strong>Google Gemini</strong></div>
+                    <input type="password" id="gemini-key" placeholder="AIza..." autocomplete="off">
+                    <button class="btn-save" onclick="saveKey('gemini')" id="gemini-btn">Guardar</button>
+                    <span class="status-badge" id="gemini-status"></span>
+                </div>
+
+                <div class="api-key-row">
+                    <div class="key-label">🔑 <strong>GroqCloud</strong></div>
+                    <input type="password" id="groq-key" placeholder="gsk_..." autocomplete="off">
+                    <button class="btn-save" onclick="saveKey('groq')" id="groq-btn">Guardar</button>
+                    <span class="status-badge" id="groq-status"></span>
+                </div>
+
+                <div id="key-status" class="key-status"></div>
+
+                <button class="btn-continue" id="btn-continue" onclick="checkSetupAndContinue()" disabled>
+                    Continuar a la aplicación →
+                </button>
+            </div>
         </div>
 
-        <div class="input-container">
-            <input type="text" id="chat-input" placeholder="Escribe tu consulta aquí..."
-                style="width: 80%; padding: 10px;">
-            <button id="enviar-btn" onclick="handleSend()" style="padding: 10px;">Enviar</button>
+        <div id="app-content" style="display:none;">
+            <div class="config-bar">
+                <span>🤖 <strong id="bar-provider">Gemini</strong></span>
+                <span>📋 <strong id="bar-model">gemini-2.5-flash</strong></span>
+                <span id="bar-gemini-status" class="status-dot on"></span>
+                <span id="bar-groq-status" class="status-dot off"></span>
+                <button class="btn-setup" onclick="showSetup()">⚙️ APIs</button>
+            </div>
+
+            <div id="chat-output">
+                <p>Skoll listo. Escribe una ruta o comando para analizar.</p>
+            </div>
+
+            <div class="input-container">
+                <input type="text" id="chat-input" placeholder="Escribe tu consulta aquí...">
+                <button id="enviar-btn" onclick="handleSend()">Enviar</button>
+            </div>
         </div>
     </div>
 

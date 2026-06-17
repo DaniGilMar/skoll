@@ -1,6 +1,6 @@
 {
-  "name": "Auditor-AI",
-  "short_name": "Auditor-AI",
+  "name": "Skoll",
+  "short_name": "Skoll",
   "description": "Asistente DevSecOps con metodología RAPTOR para auditoría de código y seguridad",
   "start_url": ".",
   "display": "standalone",

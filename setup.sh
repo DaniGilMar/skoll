@@ -2,7 +2,7 @@
 set -e
 
 echo "=============================="
-echo "  Auditor-AI - Setup"
+echo "  Skoll - Setup"
 echo "=============================="
 
 # Cargar API key desde .env si existe

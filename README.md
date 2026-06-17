@@ -1,6 +1,6 @@
-# Auditor-AI 🛡️🤖
+# Skoll 🛡️🤖
 
-**Auditor-AI** es un asistente CLI de ciberseguridad e ingeniería de software DevSecOps para la terminal, inspirado en el framework open-source **RAPTOR** (Recursive Autonomous Penetration Testing and Observation Robot). 
+**Skoll** es un asistente CLI de ciberseguridad e ingeniería de software DevSecOps para la terminal, inspirado en el framework open-source **RAPTOR** (Recursive Autonomous Penetration Testing and Observation Robot). 
 
 Funciona de manera completamente gratuita utilizando la API de Google Gemini (Gemini 2.5 Flash / Pro).
 
@@ -34,25 +34,25 @@ Funciona de manera completamente gratuita utilizando la API de Google Gemini (Ge
    pip install -e .
    ```
 
-Una vez instalada, tendrás disponible el comando global `auditor-ai` en tu terminal.
+Una vez instalada, tendrás disponible el comando global `skoll` en tu terminal.
 
 ## 📖 Instrucciones de Uso
 
 ### 1. Iniciar el Chat de Seguridad
 Inicia un chat interactivo con el prompt de sistema basado en auditoría RAPTOR:
 ```bash
-auditor-ai chat
+skoll chat
 ```
 
 ### 2. Analizar un Archivo o Carpeta Local
 Analiza un script o código fuente completo en busca de vulnerabilidades y obtén un reporte exhaustivo:
 ```bash
-auditor-ai analyze ./ruta/del/script.py
+skoll analyze ./ruta/del/script.py
 ```
 
 ### 3. Escaneo con Herramientas Locales (Bandit o Semgrep)
 Ejecuta herramientas SAST locales y deja que la IA traduzca el output en soluciones:
 ```bash
-auditor-ai scan ./ruta/del/proyecto --tool bandit
+skoll scan ./ruta/del/proyecto --tool bandit
 ```
 *(Nota: Para este comando, debes tener instaladas herramientas como `bandit` o `semgrep` en tu sistema).*

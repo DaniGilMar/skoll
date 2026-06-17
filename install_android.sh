@@ -2,7 +2,7 @@
 set -e
 
 # ============================================
-#  Auditor-AI - Instalación automática Android
+#  Skoll - Instalación automática Android
 # ============================================
 
 GREEN='\033[0;32m'
@@ -12,7 +12,7 @@ NC='\033[0m'
 
 echo -e "${CYAN}"
 echo "  ╔══════════════════════════════════╗"
-echo "  ║      Auditor-AI for Android      ║"
+echo "  ║      Skoll for Android      ║"
 echo "  ╚══════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -23,7 +23,7 @@ pkg upgrade -y -q
 pkg install -y git python python-pip openssl
 
 # --- 2. Clonar repo ---
-echo -e "${YELLOW}[2/4] Descargando Auditor-AI...${NC}"
+echo -e "${YELLOW}[2/4] Descargando Skoll...${NC}"
 if [ -d "$HOME/skoll" ]; then
   echo "Ya existe ~/skoll, actualizando..."
   cd "$HOME/skoll" && git pull
@@ -54,7 +54,7 @@ if [ -f .env ]; then
 fi
 
 echo ""
-echo "  ▶ Auditor-AI arrancando..."
+echo "  ▶ Skoll arrancando..."
 echo ""
 echo "  📱 Local:   http://localhost:8000"
 echo ""

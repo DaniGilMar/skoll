@@ -4,6 +4,7 @@ requests
 beautifulsoup4
 python-multipart
 google-genai
+groq
 rich
 bandit
 semgrep

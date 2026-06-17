@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "auditor-ai"
+name = "skoll"
 version = "0.1.0"
 description = "Asistente CLI de seguridad y auditoría de código inspirado en RAPTOR usando Google Gemini"
 readme = "README.md"
@@ -29,7 +29,7 @@ web = [
 ]
 
 [project.scripts]
-auditor-ai = "auditor_ai.main:app"
+skoll = "skoll.main:app"
 
 [tool.ruff]
 target-version = "py39"
@@ -40,7 +40,7 @@ select = ["E", "F", "I", "W", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "build/**" = ["ALL"]
-"auditor_ai/config.py" = ["E501"]
+"skoll/config.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -50,4 +50,4 @@ testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["auditor_ai*"]
+include = ["skoll*", "skoll_agent*"]

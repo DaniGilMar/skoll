@@ -1,4 +1,4 @@
-const CACHE = "auditor-ai-v3";
+const CACHE = "skoll-v3";
 const ASSETS = [
   ".",
   "index.html",

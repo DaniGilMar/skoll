@@ -1,7 +1,7 @@
 import os
 import tempfile
 
-from auditor_ai.utils import (
+from skoll.utils import (
     EXCLUDE_DIRS,
     INTERESTING_EXTENSIONS,
     es_directorio_excluido,
