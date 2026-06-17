@@ -296,34 +296,26 @@ Responde SOLO JSON sin explicaciones:
 
 {{"attack_vector": "...", "vulns": [{{"service": "...", "cve": "...", "description": "...", "confidence": "high/medium/low"}}], "exploit_plan": [{{"step": 1, "action": "...", "tool": "...", "command": "..."}}], "default_creds": ["..."], "risk_rating": "CRITICAL/HIGH/MEDIUM/LOW", "remediation_priority": ["..."]}}"""
 
-        self._emit_log(f"  Lanzando {len(agents)} agentes especializados (modelo fijo cada uno)...")
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        self._emit_log(f"  Lanzando {len(agents)} agentes especializados (cola priorizada + backoff)...")
 
-        agent_futures: dict[Any, str] = {}
-        with ThreadPoolExecutor(max_workers=12) as executor:
-            for agent in agents:
-                agent_futures[executor.submit(
-                    pool._query_one, agent["model"], agent_prompts[agent["name"]], self._cost_tracker
-                )] = (agent["name"], agent["model"])
+        # Ordenar por peso: modelos más capaces primero
+        from skoll_agent.model_pool import FREE_MODELS
+        model_weights = {m["model"]: m["weight"] for m in FREE_MODELS}
+        agents_sorted = sorted(agents, key=lambda a: model_weights.get(a["model"], 0), reverse=True)
 
-            for future in as_completed(agent_futures):
-                agent_name, model = agent_futures[future]
-                try:
-                    resp = future.result(timeout=90)
-                    if resp:
-                        parsed = self._parse_json(resp) or {"raw": resp[:300]}
-                        agent_results[agent_name] = parsed
-                        self._emit_log(f"  {agent_name} ({model}): riesgo {parsed.get('risk_rating', 'N/A')}")
-                    else:
-                        resp2, _ = self._llm_analyze(agent_prompts[agent_name])
-                        parsed = self._parse_json(resp2) or {"raw": resp2[:300]}
-                        agent_results[agent_name] = parsed
-                        self._emit_log(f"  {agent_name} (70b-fallback): riesgo {parsed.get('risk_rating', 'N/A')}")
-                except Exception as e:
-                    self._emit_log(f"  \u26a0\ufe0f {agent_name} fall\u00f3: {e}")
-                    agent_results[agent_name] = {"risk_rating": "MEDIUM", "vulns": [], "attack_vector": ""}
-
-        pool.shutdown()
+        for agent in agents_sorted:
+            agent_name = agent["name"]
+            model = agent["model"]
+            resp = pool._query_one(model, agent_prompts[agent_name], self._cost_tracker)
+            if resp:
+                parsed = self._parse_json(resp) or {"raw": resp[:300]}
+                agent_results[agent_name] = parsed
+                self._emit_log(f"  {agent_name} ({model}): riesgo {parsed.get('risk_rating', 'N/A')}")
+            else:
+                resp2, _ = self._llm_analyze(agent_prompts[agent_name])
+                parsed = self._parse_json(resp2) or {"raw": resp2[:300]}
+                agent_results[agent_name] = parsed
+                self._emit_log(f"  {agent_name} (70b-fallback): riesgo {parsed.get('risk_rating', 'N/A')}")
 
         # === CEREBRO 70b: Votación y consenso final ===
         import re as _cve_re

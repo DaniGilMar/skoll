@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import random
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable
+from typing import Any
 
 from skoll.client import GroqClient
 
-# Si Google AI Studio está configurado, se usa como juez independiente
 _GOOGLE_CLIENT: Any | None = None
 
 def _get_google_client() -> Any | None:
@@ -19,7 +19,6 @@ def _get_google_client() -> Any | None:
             _GOOGLE_CLIENT = False
     return _GOOGLE_CLIENT if _GOOGLE_CLIENT else None
 
-# Modelos gratuitos disponibles en Groq — ordenados por capacidad
 FREE_MODELS: list[dict[str, Any]] = [
     {"model": "llama-3.3-70b-versatile", "weight": 5, "capability": "high"},
     {"model": "qwen/qwen3-32b", "weight": 4, "capability": "high"},
@@ -31,7 +30,6 @@ FREE_MODELS: list[dict[str, Any]] = [
     {"model": "llama-3.1-8b-instant", "weight": 1, "capability": "low"},
 ]
 
-# Para OpenRouter — modelos gratuitos adicionales
 OPENROUTER_FREE_MODELS: list[str] = [
     "deepseek/deepseek-chat",
     "mistral/mistral-nemo",
@@ -39,50 +37,110 @@ OPENROUTER_FREE_MODELS: list[str] = [
     "google/gemini-2.0-flash-exp:free",
 ]
 
+MAX_RETRIES = 3
+CIRCUIT_BREAKER_SECONDS = 300
+MIN_REQUEST_INTERVAL = 0.33
+BACKOFF_BASE = 2
+
 
 class ModelPool:
-    """Pool de modelos gratuitos que ejecuta consultas en paralelo.
-
-    Útil para multi-agente: cada agente usa un modelo diferente,
-    todos corren simultáneamente, resultados se consolidan.
-
-    Soporta Groq (gratis) y OpenRouter (opcional, si hay API key).
-    """
 
     def __init__(self, groq_client: GroqClient | None = None, openrouter_client: Any = None):
         self.groq = groq_client
         self.openrouter = openrouter_client
-        self._executor = ThreadPoolExecutor(max_workers=12)
+        self._lock = threading.Lock()
+        self._last_request: float = 0.0
+        self._failures: dict[str, dict[str, Any]] = {}
+
+    # ── Rate limiter ──────────────────────────────────────────
+
+    def _throttle(self) -> None:
+        with self._lock:
+            now = time.time()
+            elapsed = now - self._last_request
+            if elapsed < MIN_REQUEST_INTERVAL:
+                time.sleep(MIN_REQUEST_INTERVAL - elapsed)
+            self._last_request = time.time()
+
+    # ── Circuit breaker ───────────────────────────────────────
+
+    def _is_blocked(self, model: str) -> bool:
+        entry = self._failures.get(model)
+        if not entry:
+            return False
+        if time.time() >= entry.get("unblock_at", 0):
+            del self._failures[model]
+            return False
+        return True
+
+    def _mark_failure(self, model: str, is_rate_limit: bool = False) -> None:
+        if is_rate_limit:
+            return
+        entry = self._failures.setdefault(model, {"count": 0, "unblock_at": 0})
+        entry["count"] += 1
+        if entry["count"] >= 3:
+            entry["unblock_at"] = time.time() + CIRCUIT_BREAKER_SECONDS
+
+    def _mark_success(self, model: str) -> None:
+        self._failures.pop(model, None)
+
+    # ── Query with retry + backoff ────────────────────────────
 
     def _query_one(self, model: str, prompt: str, cost_tracker: Any = None) -> str:
-        """Consulta un modelo individual. Prueba Groq primero, luego OpenRouter."""
-        if self.groq:
-            try:
-                start = time.time()
-                resp = self.groq._call(prompt, model=model, temperature=0.1)
-                if cost_tracker:
-                    cost_tracker.record(
-                        model=model, input_tokens=len(prompt)//4,
-                        output_tokens=len(resp)//4, endpoint="model_pool",
-                    )
-                return resp
-            except Exception:
-                pass
-        if self.openrouter:
-            try:
-                resp = self.openrouter._call(prompt, model=model)
-                if cost_tracker:
-                    cost_tracker.record(
-                        model=model, input_tokens=len(prompt)//4,
-                        output_tokens=len(resp)//4, endpoint="model_pool_or",
-                    )
-                return resp
-            except Exception:
-                pass
+        if self._is_blocked(model):
+            return ""
+
+        for attempt in range(MAX_RETRIES):
+            self._throttle()
+            err: Exception | None = None
+
+            # Intentar Groq
+            if self.groq:
+                try:
+                    resp = self.groq._call(prompt, model=model, temperature=0.1)
+                    if cost_tracker:
+                        cost_tracker.record(
+                            model=model, input_tokens=len(prompt)//4,
+                            output_tokens=len(resp)//4, endpoint="model_pool",
+                        )
+                    self._mark_success(model)
+                    return resp
+                except Exception as e:
+                    err = e
+
+            # Intentar OpenRouter si Groq falló
+            if self.openrouter and not err:
+                try:
+                    resp = self.openrouter._call(prompt, model=model)
+                    if cost_tracker:
+                        cost_tracker.record(
+                            model=model, input_tokens=len(prompt)//4,
+                            output_tokens=len(resp)//4, endpoint="model_pool_or",
+                        )
+                    self._mark_success(model)
+                    return resp
+                except Exception as e:
+                    err = e
+
+            if err is None:
+                return ""
+
+            err_str = str(err)
+            is_429 = "429" in err_str
+
+            if is_429 and attempt < MAX_RETRIES - 1:
+                delay = (BACKOFF_BASE ** attempt) * 2 + random.uniform(0, 0.5)
+                time.sleep(delay)
+                continue
+
+            self._mark_failure(model, is_rate_limit=is_429)
+            break
+
         return ""
 
+    # ── Public API ────────────────────────────────────────────
+
     def all_models(self) -> list[str]:
-        """Todos los modelos disponibles (Groq + OpenRouter si configurado)."""
         models = [m["model"] for m in FREE_MODELS]
         if self.openrouter:
             models.extend(OPENROUTER_FREE_MODELS)
@@ -92,34 +150,20 @@ class ModelPool:
         self,
         prompt: str,
         min_capability: str = "low",
-        max_workers: int = 6,
         cost_tracker: Any = None,
     ) -> dict[str, str]:
-        """Ejecuta el mismo prompt contra TODOS los modelos gratuitos en paralelo.
-
-        Returns: {model_name: response_text}
-        """
-        futures: dict[Any, str] = {}
-        for m in FREE_MODELS:
-            if m["capability"] not in ("high", "medium", "low"):
-                continue
-            if m["capability"] == "low" and min_capability == "high":
-                continue
-            if m["capability"] == "low" and min_capability == "medium":
-                continue
-            if m["capability"] == "medium" and min_capability == "high":
-                continue
-            futures[self._executor.submit(self._query_one, m["model"], prompt, cost_tracker)] = m["model"]
-
         results: dict[str, str] = {}
-        for future in as_completed(futures):
-            model_name = futures[future]
-            try:
-                resp = future.result(timeout=60)
-                if resp:
-                    results[model_name] = resp
-            except Exception:
-                pass
+        sorted_models = sorted(
+            [m for m in FREE_MODELS
+             if m["capability"] in ("high", "medium", "low")
+             and not (m["capability"] == "low" and min_capability in ("medium", "high"))
+             and not (m["capability"] == "medium" and min_capability == "high")],
+            key=lambda x: -x["weight"],
+        )
+        for m in sorted_models:
+            resp = self._query_one(m["model"], prompt, cost_tracker)
+            if resp:
+                results[m["model"]] = resp
         return results
 
     def query_top_k(
@@ -128,22 +172,13 @@ class ModelPool:
         k: int = 3,
         cost_tracker: Any = None,
     ) -> dict[str, str]:
-        """Ejecuta contra los k modelos con mayor weight en paralelo."""
         selected = sorted(FREE_MODELS, key=lambda x: -x["weight"])[:k]
-        futures = {}
-        for m in selected:
-            futures[self._executor.submit(self._query_one, m["model"], prompt, cost_tracker)] = m["model"]
-
         results: dict[str, str] = {}
-        for future in as_completed(futures):
-            model_name = futures[future]
-            try:
-                resp = future.result(timeout=60)
-                if resp:
-                    results[model_name] = resp
-            except Exception:
-                pass
+        for m in selected:
+            resp = self._query_one(m["model"], prompt, cost_tracker)
+            if resp:
+                results[m["model"]] = resp
         return results
 
     def shutdown(self):
-        self._executor.shutdown(wait=False)
+        pass
