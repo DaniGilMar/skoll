@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import queue
 import time
 from typing import Any
 
@@ -7,28 +9,15 @@ from core.config import get_config
 from core.evidence import EvidenceStore, get_campaign_memory
 from core.llm import get_llm_router
 from core.logging import get_logger
-from core.progress import get_emitter
 from core.rules import get_findings_engine
-from core.schema import Evidence, Finding, Observation, ScanRun, Target
-from tiers import TIERS, TierConfig, get_tier
+from core.schema import Finding, Target
+from tiers import get_tier
 
 logger = get_logger()
 cfg = get_config()
 
 
 class Orchestrator:
-    """Orquestador principal de Skoll.
-
-    Pipeline:
-    1. Seleccionar tier → determinar qué engines ejecutar
-    2. Ejecutar engines → recolectar evidencia
-    3. Evidence Store → guardar evidencia cruda
-    4. Findings Engine → hallazgos deterministas (0 tokens)
-    5. Campaign Memory → correlacionar entre hosts
-    6. LLM → análisis solo de hallazgos críticos
-    7. Report → generar informe
-    """
-
     def __init__(self) -> None:
         self.evidence_store = EvidenceStore(cfg.evidence_db)
         self.memory = get_campaign_memory()
@@ -41,69 +30,87 @@ class Orchestrator:
         campaign_id: str = "",
         tier_name: str = "fast",
         skip_llm: bool = False,
+        progress_queue: queue.Queue | None = None,
     ) -> dict[str, Any]:
-        phase = "pipeline"
+        def emit(typ: str, data: dict | None = None):
+            if progress_queue is not None:
+                progress_queue.put({"type": typ, "data": data or {}})
+
         if not campaign_id:
             campaign_id = f"scan_{int(time.time())}"
 
         target = Target.parse(target_raw)
         tier = get_tier(tier_name)
+        target_str = target.hostname or target.ip
 
-        logger.info(phase, f"Iniciando campaña {campaign_id} contra {target_raw}")
-        logger.info(phase, f"Perfil: {tier.name} — {tier.description}")
+        logger.info("pipeline", f"Iniciando campaña {campaign_id}")
+        emit("agent_log", {"message": f"📋 Iniciando escaneo contra {target_str} (perfil: {tier.name})"})
 
-        # 1. Crear campaña en memoria
-        campaign = self.memory.create_campaign(campaign_id, target_raw)
+        # 1. Campaña
+        self.memory.create_campaign(campaign_id, target_raw)
         scan = self.memory.start_scan(campaign_id, target_raw)
         scan_run_id = scan["scan_run_id"]
 
-        # 2. Ejecutar engines según el tier
-        evidence_list = self._run_engines(target, tier, campaign_id)
+        # 2. Ejecutar nmap
+        emit("agent_log", {"message": "🔧 Ejecutando nmap..."})
+        emit("agent_tool_start", {"tool": "nmap", "target": target_str, "params": {"flags": tier.nmap_flags}})
+        logger.info("engines", f"nmap {target_str} {tier.nmap_flags}")
+        nmap_result = self._run_nmap(target_str, tier.nmap_flags)
+        if nmap_result:
+            self.evidence_store.save(campaign_id, target_str, "nmap", nmap_result)
+            obs = nmap_result.get("observations", [])
+            emit("agent_tool_result", {"tool": "nmap", "target": target_str, "summary": f"{len(obs)} puertos encontrados"})
+        else:
+            emit("agent_tool_result", {"tool": "nmap", "target": target_str, "summary": "Sin resultados"})
 
-        # 3. Findings Engine (0 tokens)
+        evidence_list = [{"host": target_str, "tool": "nmap", "observations": nmap_result.get("observations", [])}]
+
+        # 3. whatweb
+        if tier.whatweb:
+            emit("agent_log", {"message": "🔧 Ejecutando whatweb..."})
+            emit("agent_tool_start", {"tool": "whatweb", "target": target_str, "params": {}})
+            logger.info("engines", f"whatweb {target_str}")
+            ww_result = self._run_whatweb(target_str)
+            if ww_result:
+                self.evidence_store.save(campaign_id, target_str, "whatweb", ww_result)
+                evidence_list.append({"host": target_str, "tool": "whatweb", "observations": ww_result.get("observations", [])})
+                emit("agent_tool_result", {"tool": "whatweb", "target": target_str, "summary": "Web detectada"})
+            else:
+                emit("agent_tool_result", {"tool": "whatweb", "target": target_str, "summary": "Sin respuesta web"})
+
+        # 4. Findings Engine
+        emit("agent_log", {"message": "🔍 Analizando hallazgos (0 tokens)..."})
         findings_data = self.findings_engine.process_evidence(evidence_list)
         findings = [Finding(**f) if not isinstance(f, Finding) else f for f in findings_data]
+        emit("agent_log", {"message": f"📊 {len(findings)} hallazgos deterministas"})
 
-        # 4. Guardar en memoria
+        # 5. Guardar en memoria
         for f in findings:
-            self.memory.remember_finding(
-                campaign_id, scan_run_id,
-                f.to_dict() if hasattr(f, "to_dict") else f,
-            )
+            self.memory.remember_finding(campaign_id, scan_run_id, f.to_dict() if hasattr(f, "to_dict") else f)
 
-        # Registrar hosts
-        hosts_seen: set[str] = set()
+        # 6. Hosts
         for ev in evidence_list:
             h = ev.get("host", "")
-            if h and h not in hosts_seen:
-                hosts_seen.add(h)
-                obs = ev.get("observations", [])
-                ports = len(obs)
-                services = len({o.get("service", "") for o in obs if o.get("service")})
-                self.memory.upsert_host(campaign_id, h, port_count=ports, service_count=services)
-
-        # Correlaciones
+            obs = ev.get("observations", [])
+            self.memory.upsert_host(campaign_id, h, port_count=len(obs), service_count=len({o.get("service", "") for o in obs if o.get("service")}))
         correlations = self.memory.correlate_hosts(campaign_id)
+        if correlations:
+            emit("agent_log", {"message": f"🔗 {len(correlations)} correlaciones entre servicios"})
 
-        # 5. LLM (solo si hay hallazgos críticos y no se saltó)
+        # 7. LLM
         llm_text = ""
         critical = [f for f in findings if f.severity in ("critical", "high")]
         if critical and not skip_llm and cfg.has_groq:
-            logger.info(phase, f"Analizando {len(critical)} hallazgos con LLM...")
-            summary = "\n".join(
-                f"- [{f.severity}] {f.title} en {f.host}:{f.port}" for f in critical
-            )
-            prompt = (
-                f"Eres un analista de seguridad. Revisa estos hallazgos:\n{summary}\n\n"
-                "Proporciona análisis en lenguaje natural: riesgo global, prioridad, recomendaciones."
-            )
+            emit("agent_log", {"message": f"🧠 Analizando {len(critical)} hallazgos con LLM..."})
+            summary = "\n".join(f"- [{f.severity}] {f.title} en {f.host}:{f.port}" for f in critical)
+            prompt = f"Eres un analista de seguridad. Revisa:\n{summary}\n\nProporciona análisis en lenguaje natural."
             llm_text = self.llm.chat(prompt, model="llama-3.3-70b-versatile")
+            emit("agent_log", {"message": "✅ Análisis LLM completado"})
 
-        # 6. Finalizar
         self.memory.finish_scan(scan_run_id, len(findings))
         summary = self.memory.campaign_summary(campaign_id)
 
-        # 7. Report (si hay hallazgos)
+        # 8. Reporte
         report_files = {}
         if findings:
             from core.report import ReportGenerator
@@ -115,6 +122,7 @@ class Orchestrator:
                 scan_target=target_raw,
                 hosts=self.memory.get_hosts(campaign_id),
             )
+            emit("agent_log", {"message": f"📄 Reporte: {report_files.get('markdown', '')}"})
 
         result = {
             "campaign_id": campaign_id,
@@ -123,77 +131,31 @@ class Orchestrator:
             "total_evidence": len(evidence_list),
             "total_findings": len(findings),
             "critical_findings": len(critical),
-            "correlations": len(correlations),
-            "llm_analysis": llm_text,
             "report_files": report_files,
-            "summary": summary,
         }
 
-        logger.info(phase, f"Pipeline completado: {len(findings)} hallazgos")
+        emit("agent_summary", {"message": f"✅ {len(findings)} hallazgos ({len(critical)} críticos)"})
+        logger.info("pipeline", f"Completado: {len(findings)} hallazgos")
         return result
 
-    def _run_engines(
-        self, target: Target, tier: TierConfig, campaign_id: str
-    ) -> list[dict[str, Any]]:
-        """Ejecuta los engines según la config del tier."""
-        phase = "engines"
-        evidence_list: list[dict[str, Any]] = []
-
-        target_str = target.hostname or target.ip
-
-        # nmap siempre
-        logger.info(phase, f"Ejecutando nmap contra {target_str}")
-        nmap_result = self._run_nmap(target_str, tier.nmap_flags)
-        if nmap_result:
-            self.evidence_store.save(campaign_id, target_str, "nmap", nmap_result)
-            evidence_list.append({
-                "host": target_str,
-                "tool": "nmap",
-                "observations": nmap_result.get("observations", []),
-            })
-
-        # whatweb siempre
-        if tier.whatweb:
-            logger.info(phase, "Ejecutando whatweb")
-            ww_result = self._run_whatweb(target_str)
-            if ww_result:
-                self.evidence_store.save(campaign_id, target_str, "whatweb", ww_result)
-                evidence_list.append({
-                    "host": target_str,
-                    "tool": "whatweb",
-                    "observations": ww_result.get("observations", []),
-                })
-
-        return evidence_list
-
     def _run_nmap(self, target: str, flags: str) -> dict[str, Any]:
-        """Ejecuta nmap y parsea resultado."""
         from core.run import run_command
-
-        # Construir comando nmap con output XML
         cmd = ["nmap", *flags.split(), target, "-oX", "-"]
-        result = run_command(cmd, description=f"nmap {target}", timeout=600)
-
+        result = run_command(cmd, description=f"nmap {target} {flags}", timeout=600)
         if result["returncode"] != 0 and not result["timed_out"]:
             logger.error("nmap", f"Error: {result['stderr'][:200]}")
             return {}
-
         stdout = result["stdout"]
         if not stdout.strip():
-            logger.warn("nmap", "Sin output de nmap")
             return {}
-
         return self._parse_nmap_xml(stdout)
 
     def _parse_nmap_xml(self, xml_text: str) -> dict[str, Any]:
-        """Parse básico de output XML de nmap."""
         import xml.etree.ElementTree as ET
-
         observations = []
         try:
             root = ET.fromstring(xml_text)
             for host in root.findall(".//host"):
-                host_addr = host.findtext("./address/@addr", "")
                 for port in host.findall(".//port"):
                     port_id = port.get("port", "0")
                     protocol = port.get("protocol", "tcp")
@@ -201,51 +163,36 @@ class Orchestrator:
                     state = state_el.get("state", "unknown") if state_el is not None else "unknown"
                     service_el = port.find("service")
                     service = service_el.get("name", "") if service_el is not None else ""
-
                     flags = []
-                    # Detectar flags de scripts
                     for script in port.findall(".//script"):
-                        script_id = script.get("id", "")
                         output = script.get("output", "").lower()
                         if "disabled" in output and "signing" in output:
                             flags.append("SMB_SIGNING_DISABLED")
                         if "anonymous" in output:
                             flags.append("ANONYMOUS_LOGIN")
-
                     observations.append({
                         "port": int(port_id) if port_id.isdigit() else 0,
-                        "service": service,
-                        "protocol": protocol,
-                        "state": state,
-                        "flags": flags,
+                        "service": service, "protocol": protocol,
+                        "state": state, "flags": flags,
                     })
-        except ET.ParseError as e:
-            logger.warn("nmap", f"Error parseando XML: {e}")
+        except ET.ParseError:
             return {}
-
         return {"observations": observations}
 
     def _run_whatweb(self, target: str) -> dict[str, Any]:
-        """Ejecuta whatweb y parsea resultado."""
         from core.run import run_command
-
         url = f"http://{target}" if not target.startswith("http") else target
         cmd = ["whatweb", "--no-errors", "-a", "3", url]
         result = run_command(cmd, description=f"whatweb {url}", timeout=120)
-
         if result["returncode"] not in (0, 1):
-            logger.warn("whatweb", f"Error: {result['stderr'][:200]}")
             return {}
-
         output = result["stdout"].strip()
         if not output:
             return {}
-
         observations = [{
             "port": 80 if url.startswith("http://") else 443,
             "service": "http" if url.startswith("http://") else "https",
-            "state": "open",
-            "flags": [],
+            "state": "open", "flags": [],
             "raw": {"whatweb_output": output},
         }]
         return {"observations": observations}

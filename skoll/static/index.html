@@ -42,6 +42,9 @@
       <button class="nav-item" id="nav-agent" onclick="switchTab('agent')">
         <span class="nav-icon">🤖</span><span>Agente Autónomo</span>
       </button>
+      <button class="nav-item" id="nav-renacer" onclick="switchTab('renacer')">
+        <span class="nav-icon">🛡️</span><span>Renacer</span>
+      </button>
     </nav>
 
     <div class="sidebar-footer">
@@ -186,6 +189,23 @@
       </div>
     </section>
 
+    <section class="tab-panel" id="tab-renacer">
+      <div class="panel-body">
+        <div class="card">
+          <h2 class="card-title">🛡️ Renacer — Pipeline Modular</h2>
+          <p class="card-desc">Nueva arquitectura: tiers deterministas + engines como plugins + LLM solo al final.</p>
+          <div class="input-group">
+            <input type="text" id="renacer-target" class="text-input" placeholder="IP o hostname — ej: 10.0.0.1 o ejemplo.com" />
+            <button class="btn btn-primary" id="renacer-btn" onclick="startRenacer()">▶ Escanear</button>
+          </div>
+          <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">Perfil: Fast (nmap top 1000 puertos + whatweb). Sin LLM.</p>
+        </div>
+      </div>
+      <div class="output-wrapper" id="renacer-output-wrapper">
+        <div class="agent-log" id="renacer-log"></div>
+      </div>
+    </section>
+
   </main>
 
   <div class="toast hidden" id="toast"></div>
@@ -202,7 +222,7 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=6"></script>
+  <script src="/static/app.js?v=7"></script>
 </body>
 
 </html>

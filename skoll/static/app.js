@@ -120,7 +120,7 @@ async function saveApiKey() {
 
 // ── Tab switching ──────────────────────────────────────────────────────
 function switchTab(tab) {
-  const titles = { analyze: "Análisis de Código", scan: "Escaneo SAST", web: "Auditoría Web (URL)", chat: "Chat de Seguridad", agent: "Agente Autónomo" };
+  const titles = { analyze: "Análisis de Código", scan: "Escaneo SAST", web: "Auditoría Web (URL)", chat: "Chat de Seguridad", agent: "Agente Autónomo", renacer: "Renacer — Pipeline Modular" };
 
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
@@ -1160,6 +1160,94 @@ function renderExploit(data) {
   div.innerHTML = html;
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
+}
+
+// ── RENACER (v2) ─────────────────────────────────────────────────────
+async function startRenacer() {
+  const target = document.getElementById("renacer-target").value.trim();
+  if (!target) { showToast("❌ Introduce un target", "error"); return; }
+
+  const tier = document.getElementById("renacer-tier").value;
+  const btn = document.getElementById("renacer-btn");
+  const log = document.getElementById("renacer-log");
+
+  btn.disabled = true;
+  btn.textContent = "🔄 Ejecutando...";
+  log.innerHTML = '<div class="agent-entry log">🛡️ Iniciando pipeline Renacer...</div>';
+
+  try {
+    const res = await fetch("/api/v2/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target, tier })
+    });
+    if (!res.ok) throw new Error((await res.json()).detail);
+    const data = await res.json();
+    log.innerHTML += `<div class="agent-entry log">✅ Sesión: ${data.session_id.slice(0, 8)}... | Tier: ${tier}</div>`;
+
+    const stream = await fetch(`/api/v2/stream/${data.session_id}`);
+    const reader = stream.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const evt = JSON.parse(line.slice(6));
+          handleRenacerEvent(evt, log);
+        } catch {}
+      }
+    }
+
+    showToast("✅ Pipeline completado", "success");
+  } catch (e) {
+    log.innerHTML += `<div class="agent-entry error">❌ Error: ${e.message}</div>`;
+    showToast("❌ " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "▶ Ejecutar";
+  }
+}
+
+function handleRenacerEvent(evt, log) {
+  const type = evt.type;
+  const data = evt.data || {};
+  if (type === "heartbeat") return;
+
+  let html = "";
+  switch (type) {
+    case "agent_log":
+      html = `<div class="agent-entry log">${data.message || ""}</div>`;
+      break;
+    case "agent_tool_start":
+      const flags = data.params && data.params.flags ? ` (${data.params.flags})` : "";
+      html = `<div class="agent-entry action">🔧 ${data.tool || ""} ${data.target || ""}${flags}</div>`;
+      break;
+    case "agent_tool_result":
+      html = `<div class="agent-entry action">✅ ${data.tool || ""}: ${data.summary || "ok"}</div>`;
+      break;
+    case "agent_summary":
+      html = `<div class="agent-entry complete">📊 ${data.message || "Resumen"}</div>`;
+      break;
+    case "agent_complete":
+      html = `<div class="agent-entry complete">✅ Pipeline completado</div>`;
+      break;
+    case "agent_error":
+      html = `<div class="agent-entry error">❌ ${data.message || "Error"}</div>`;
+      break;
+    default:
+      html = data.message ? `<div class="agent-entry log">${data.message}</div>` : "";
+  }
+  if (html) {
+    log.innerHTML += html;
+    log.scrollTop = log.scrollHeight;
+  }
 }
 
 function toggleToolOutput(id) {
