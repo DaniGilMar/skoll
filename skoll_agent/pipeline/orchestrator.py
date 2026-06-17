@@ -303,19 +303,24 @@ Responde SOLO JSON sin explicaciones:
         model_weights = {m["model"]: m["weight"] for m in FREE_MODELS}
         agents_sorted = sorted(agents, key=lambda a: model_weights.get(a["model"], 0), reverse=True)
 
+        model_usage: dict[str, dict[str, str]] = {}
+
         for agent in agents_sorted:
             agent_name = agent["name"]
-            model = agent["model"]
-            resp = pool._query_one(model, agent_prompts[agent_name], self._cost_tracker)
+            assigned_model = agent["model"]
+            resp = pool._query_one(assigned_model, agent_prompts[agent_name], self._cost_tracker)
             if resp:
                 parsed = self._parse_json(resp) or {"raw": resp[:300]}
                 agent_results[agent_name] = parsed
-                self._emit_log(f"  {agent_name} ({model}): riesgo {parsed.get('risk_rating', 'N/A')}")
+                model_usage[agent_name] = {"assigned": assigned_model, "used": assigned_model}
+                self._emit_log(f"  {agent_name} ({assigned_model}): riesgo {parsed.get('risk_rating', 'N/A')}")
             else:
                 resp2, _ = self._llm_analyze(agent_prompts[agent_name])
                 parsed = self._parse_json(resp2) or {"raw": resp2[:300]}
                 agent_results[agent_name] = parsed
-                self._emit_log(f"  {agent_name} (70b-fallback): riesgo {parsed.get('risk_rating', 'N/A')}")
+                fallback_model = "llama-3.3-70b-versatile"
+                model_usage[agent_name] = {"assigned": assigned_model, "used": fallback_model, "fallback": "rate_limit"}
+                self._emit_log(f"  {agent_name} ({assigned_model}→{fallback_model} fallback): riesgo {parsed.get('risk_rating', 'N/A')}")
 
         # === CEREBRO 70b: Votación y consenso final ===
         import re as _cve_re
@@ -377,6 +382,7 @@ Responde SOLO JSON sin explicaciones:
             "attack_vector": attack_vector,
             "remediation_priority": remediation,
             "default_creds": default_creds,
+            "model_usage": model_usage,
         }
 
         self._emit_log(f"  Cerebro: {len(confirmed)} CVEs confirmados (≥2 agentes), riesgo {final_risk}")
@@ -1117,6 +1123,26 @@ Output JSON array:
                 "",
                 analysis_summary,
             ])
+
+        # Model usage / reliability
+        model_usage = analyze_phase.metadata.get("llm_analysis", {}).get("model_usage", {})
+        if model_usage:
+            fallbacks = [name for name, m in model_usage.items() if m.get("fallback")]
+            all_ok = len(fallbacks) == 0
+            report_lines.extend([
+                "",
+                "### Fiabilidad de Modelos",
+                f"**Estado:** {'✅ Todos los agentes usaron su modelo asignado' if all_ok else f'⚠️ {len(fallbacks)} agente(s) hicieron fallback'}",
+                "",
+                "| Agente | Modelo Asignado | Modelo Usado | Estado |",
+                "|--------|----------------|-------------|--------|",
+            ])
+            for agent_name in sorted(model_usage.keys()):
+                m = model_usage[agent_name]
+                assigned = m.get("assigned", "?")
+                used = m.get("used", "?")
+                status = "✅" if assigned == used else "⚠️ fallback"
+                report_lines.append(f"| {agent_name} | {assigned} | {used} | {status} |")
 
         # Remediation
         chain_analysis = self.pipeline.get_phase(PhaseId.CHAIN).metadata.get("chain_analysis", {})
