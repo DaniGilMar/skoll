@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import queue
 import threading
+import time
 import uuid
 from typing import Any
 
@@ -12,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from orchestrator import Orchestrator
+from core.agent import SkollAgent
 
 router = APIRouter(prefix="/api/v2")
 
@@ -23,7 +25,7 @@ _v2_results: dict[str, dict[str, Any]] = {}
 async def v2_start(request: Request):
     body = await request.json()
     target = body.get("target", "").strip()
-    tier = body.get("tier", "fast")
+    tier = body.get("tier", "agent")
     campaign_id = body.get("campaign_id", f"scan_{int(time.time())}")
 
     if not target:
@@ -35,18 +37,27 @@ async def v2_start(request: Request):
 
     def run():
         try:
-            orch = Orchestrator()
-            result = orch.run(
-                target_raw=target,
-                campaign_id=campaign_id,
-                tier_name=tier,
-                skip_llm=True,
-                progress_queue=q,
-            )
+            if tier == "agent":
+                agent = SkollAgent(progress_queue=q)
+                result = agent.run(
+                    target_raw=target,
+                    campaign_id=campaign_id,
+                )
+            else:
+                orch = Orchestrator()
+                result = orch.run(
+                    target_raw=target,
+                    campaign_id=campaign_id,
+                    tier_name=tier,
+                    skip_llm=False,
+                    progress_queue=q,
+                )
             q.put({"type": "agent_complete", "data": {"result": "ok"}})
             _v2_results[session_id] = result
         except Exception as e:
-            q.put({"type": "agent_error", "data": {"message": str(e)}})
+            import traceback
+            q.put({"type": "agent_error", "data": {"message": f"{type(e).__name__}: {e}"}})
+            q.put({"type": "agent_complete", "data": {"result": "error"}})
 
     t = threading.Thread(target=run, daemon=True)
     t.start()

@@ -52,6 +52,9 @@ except ImportError:
 
 app = FastAPI(title="Skoll Web")
 
+from skoll.web_v2 import register_v2_routes
+register_v2_routes(app)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

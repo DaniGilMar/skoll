@@ -9,6 +9,7 @@ from core.config import get_config
 from core.evidence import EvidenceStore, get_campaign_memory
 from core.llm import get_llm_router
 from core.logging import get_logger
+from core.osint import subfinder_enum, theharvester_collect, crt_lookup, dns_enum
 from core.rules import get_findings_engine
 from core.schema import Finding, Target
 from tiers import get_tier
@@ -32,6 +33,7 @@ class Orchestrator:
         skip_llm: bool = False,
         progress_queue: queue.Queue | None = None,
     ) -> dict[str, Any]:
+        self._progress_queue = progress_queue
         def emit(typ: str, data: dict | None = None):
             if progress_queue is not None:
                 progress_queue.put({"type": typ, "data": data or {}})
@@ -51,6 +53,28 @@ class Orchestrator:
         scan = self.memory.start_scan(campaign_id, target_raw)
         scan_run_id = scan["scan_run_id"]
 
+        # 1b. OSINT (solo si es dominio, no IP)
+        if "." in target_raw and not target_raw[0].isdigit():
+            emit("agent_log", {"message": "🔍 Fase OSINT: recopilando información pasiva..."})
+
+            emit("agent_tool_start", {"tool": "subfinder_enum", "target": target_str, "params": {}})
+            sf_res = subfinder_enum(target_str)
+            emit("agent_tool_result", {"tool": "subfinder_enum", "target": target_str, "summary": sf_res.get("result", "")[:150]})
+
+            emit("agent_tool_start", {"tool": "theharvester_collect", "target": target_str, "params": {}})
+            th_res = theharvester_collect(target_str)
+            emit("agent_tool_result", {"tool": "theharvester_collect", "target": target_str, "summary": th_res.get("result", "")[:150]})
+
+            emit("agent_tool_start", {"tool": "crt_lookup", "target": target_str, "params": {}})
+            crt_res = crt_lookup(target_str)
+            emit("agent_tool_result", {"tool": "crt_lookup", "target": target_str, "summary": crt_res.get("result", "")[:150]})
+
+            emit("agent_tool_start", {"tool": "dns_enum", "target": target_str, "params": {}})
+            dns_res = dns_enum(target_str)
+            emit("agent_tool_result", {"tool": "dns_enum", "target": target_str, "summary": dns_res.get("result", "")[:150]})
+
+            emit("agent_log", {"message": "✅ OSINT completado — pasando a escaneo activo"})
+
         # 2. Ejecutar nmap
         emit("agent_log", {"message": "🔧 Ejecutando nmap..."})
         emit("agent_tool_start", {"tool": "nmap", "target": target_str, "params": {"flags": tier.nmap_flags}})
@@ -65,6 +89,8 @@ class Orchestrator:
 
         evidence_list = [{"host": target_str, "tool": "nmap", "observations": nmap_result.get("observations", [])}]
 
+        has_web = False
+
         # 3. whatweb
         if tier.whatweb:
             emit("agent_log", {"message": "🔧 Ejecutando whatweb..."})
@@ -74,9 +100,50 @@ class Orchestrator:
             if ww_result:
                 self.evidence_store.save(campaign_id, target_str, "whatweb", ww_result)
                 evidence_list.append({"host": target_str, "tool": "whatweb", "observations": ww_result.get("observations", [])})
+                has_web = True
                 emit("agent_tool_result", {"tool": "whatweb", "target": target_str, "summary": "Web detectada"})
             else:
                 emit("agent_tool_result", {"tool": "whatweb", "target": target_str, "summary": "Sin respuesta web"})
+
+        # 3b. sqlmap
+        if has_web and tier.sqlmap:
+            emit("agent_log", {"message": "💉 Ejecutando sqlmap..."})
+            emit("agent_tool_start", {"tool": "sqlmap", "target": target_str, "params": {}})
+            logger.info("engines", f"sqlmap {target_str}")
+            sqlmap_result = self._run_sqlmap(target_str)
+            if sqlmap_result:
+                self.evidence_store.save(campaign_id, target_str, "sqlmap", sqlmap_result)
+                evidence_list.append({"host": target_str, "tool": "sqlmap", "observations": sqlmap_result.get("observations", [])})
+                vuln_count = len(sqlmap_result.get("observations", []))
+                emit("agent_tool_result", {"tool": "sqlmap", "target": target_str, "summary": f"{vuln_count} posibles vulnerabilidades"})
+            else:
+                emit("agent_tool_result", {"tool": "sqlmap", "target": target_str, "summary": "Sin inyecciones detectadas"})
+
+        # 3c. nikto
+        if has_web and tier.nikto:
+            emit("agent_log", {"message": "🔧 Ejecutando nikto..."})
+            emit("agent_tool_start", {"tool": "nikto", "target": target_str, "params": {}})
+            logger.info("engines", f"nikto {target_str}")
+            nikto_result = self._run_nikto(target_str)
+            if nikto_result:
+                self.evidence_store.save(campaign_id, target_str, "nikto", nikto_result)
+                evidence_list.append({"host": target_str, "tool": "nikto", "observations": nikto_result.get("observations", [])})
+                emit("agent_tool_result", {"tool": "nikto", "target": target_str, "summary": "Escaneo nikto completado"})
+            else:
+                emit("agent_tool_result", {"tool": "nikto", "target": target_str, "summary": "Sin resultados"})
+
+        # 3d. gobuster
+        if has_web and tier.gobuster:
+            emit("agent_log", {"message": "🔧 Ejecutando gobuster..."})
+            emit("agent_tool_start", {"tool": "gobuster", "target": target_str, "params": {}})
+            logger.info("engines", f"gobuster {target_str}")
+            gb_result = self._run_gobuster(target_str)
+            if gb_result:
+                self.evidence_store.save(campaign_id, target_str, "gobuster", gb_result)
+                evidence_list.append({"host": target_str, "tool": "gobuster", "observations": gb_result.get("observations", [])})
+                emit("agent_tool_result", {"tool": "gobuster", "target": target_str, "summary": f"{len(gb_result.get('observations', []))} rutas encontradas"})
+            else:
+                emit("agent_tool_result", {"tool": "gobuster", "target": target_str, "summary": "Sin rutas descubiertas"})
 
         # 4. Findings Engine
         emit("agent_log", {"message": "🔍 Analizando hallazgos (0 tokens)..."})
@@ -140,8 +207,17 @@ class Orchestrator:
 
     def _run_nmap(self, target: str, flags: str) -> dict[str, Any]:
         from core.run import run_command
+        import re
         cmd = ["nmap", *flags.split(), target, "-oX", "-"]
-        result = run_command(cmd, description=f"nmap {target} {flags}", timeout=600)
+
+        def on_line(line: str):
+            m = re.search(r"About\s+([\d.]+)%", line)
+            if m:
+                pct = m.group(1)
+                if self._progress_queue is not None:
+                    self._progress_queue.put({"type": "agent_log", "data": {"message": f"⏳ nmap: {pct}% completado"}})
+
+        result = run_command(cmd, description=f"nmap {target} {flags}", timeout=600, line_callback=on_line)
         if result["returncode"] != 0 and not result["timed_out"]:
             logger.error("nmap", f"Error: {result['stderr'][:200]}")
             return {}
@@ -179,6 +255,38 @@ class Orchestrator:
             return {}
         return {"observations": observations}
 
+    def _run_nikto(self, target: str) -> dict[str, Any]:
+        from core.run import run_command
+        import uuid
+        outfile = f"/tmp/skoll_nikto_{uuid.uuid4().hex[:8]}.txt"
+        url = f"http://{target}" if not target.startswith("http") else target
+        cmd = ["nikto", "-h", url, "-o", outfile, "-Format", "txt", "-Tuning", "123467"]
+        result = run_command(cmd, description=f"nikto {url}", timeout=600)
+        try:
+            with open(outfile) as f:
+                output = f.read()
+            return {"observations": [{"port": 80, "service": "http", "state": "open", "flags": [], "raw": {"nikto_output": output[:5000]}}]}
+        except (FileNotFoundError, PermissionError):
+            return {"observations": []}
+        finally:
+            import os
+            try: os.remove(outfile)
+            except: pass
+
+    def _run_gobuster(self, target: str) -> dict[str, Any]:
+        from core.run import run_command
+        wordlist = "/usr/share/wordlists/dirb/common.txt"
+        url = f"http://{target}" if not target.startswith("http") else target
+        cmd = ["gobuster", "dir", "-u", url, "-w", wordlist, "-q", "-t", "20", "--timeout", "5s"]
+        result = run_command(cmd, description=f"gobuster {url}", timeout=300)
+        output = (result.get("stdout") or "") + (result.get("stderr") or "")
+        observations = []
+        for line in output.split("\n"):
+            parts = line.strip().split()
+            if len(parts) >= 2 and parts[0].startswith("/"):
+                observations.append({"port": 80, "service": "http", "state": "open", "flags": ["DIR_ENUM"], "raw": {"path": parts[0], "status": parts[1]}})
+        return {"observations": observations} if observations else {}
+
     def _run_whatweb(self, target: str) -> dict[str, Any]:
         from core.run import run_command
         url = f"http://{target}" if not target.startswith("http") else target
@@ -196,3 +304,54 @@ class Orchestrator:
             "raw": {"whatweb_output": output},
         }]
         return {"observations": observations}
+
+    def _run_sqlmap(self, target: str) -> dict[str, Any]:
+        from core.run import run_command
+        observations = []
+        for scheme, port in [("http", 80), ("https", 443)]:
+            url = f"{scheme}://{target}:{port}/"
+            cmd = [
+                "sqlmap", "-u", url,
+                "--batch", "--random-agent",
+                "--level", "1", "--risk", "1",
+                "--time-sec", "3",
+                "--forms", "--crawl", "1",
+                "--output-dir", "/tmp/skoll_sqlmap",
+            ]
+            result = run_command(cmd, description=f"sqlmap {url}", timeout=180)
+            stdout = (result.get("stdout") or "") + (result.get("stderr") or "")
+            if "parameter" in stdout.lower() and "vulnerable" in stdout.lower():
+                observations.append({"port": port, "service": scheme, "state": "open", "flags": ["SQLI_DETECTED"]})
+        return {"observations": observations} if observations else {}
+
+    def _run_nikto(self, target: str) -> dict[str, Any]:
+        from core.run import run_command
+        import uuid
+        outfile = f"/tmp/skoll_nikto_{uuid.uuid4().hex[:8]}.txt"
+        url = f"http://{target}" if not target.startswith("http") else target
+        cmd = ["nikto", "-h", url, "-o", outfile, "-Format", "txt", "-Tuning", "123467"]
+        result = run_command(cmd, description=f"nikto {url}", timeout=600)
+        try:
+            with open(outfile) as f:
+                output = f.read()
+            return {"observations": [{"port": 80, "service": "http", "state": "open", "flags": [], "raw": {"nikto_output": output[:5000]}}]}
+        except (FileNotFoundError, PermissionError):
+            return {"observations": []}
+        finally:
+            import os
+            try: os.remove(outfile)
+            except: pass
+
+    def _run_gobuster(self, target: str) -> dict[str, Any]:
+        from core.run import run_command
+        wordlist = "/usr/share/wordlists/dirb/common.txt"
+        url = f"http://{target}" if not target.startswith("http") else target
+        cmd = ["gobuster", "dir", "-u", url, "-w", wordlist, "-q", "-t", "20", "--timeout", "5s"]
+        result = run_command(cmd, description=f"gobuster {url}", timeout=300)
+        output = (result.get("stdout") or "") + (result.get("stderr") or "")
+        observations = []
+        for line in output.split("\n"):
+            parts = line.strip().split()
+            if len(parts) >= 2 and parts[0].startswith("/"):
+                observations.append({"port": 80, "service": "http", "state": "open", "flags": ["DIR_ENUM"], "raw": {"path": parts[0], "status": parts[1]}})
+        return {"observations": observations} if observations else {}

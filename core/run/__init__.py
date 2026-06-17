@@ -17,6 +17,7 @@ def run_command(
     timeout: int = 300,
     capture_output: bool = True,
     stream: bool = True,
+    line_callback: callable | None = None,
 ) -> dict[str, Any]:
     """Ejecuta un comando con timeout, streaming y captura de output.
 
@@ -57,6 +58,8 @@ def run_command(
         for line in iter(pipe.readline, ""):
             if line:
                 storage.append(line)
+                if line_callback:
+                    line_callback(line.rstrip())
                 if stream and description:
                     display = line.rstrip()[:200]
                     logger.debug(phase, f"{prefix}{display}")

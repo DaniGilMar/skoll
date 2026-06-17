@@ -15,6 +15,7 @@ class TierConfig:
     gobuster: bool = False
     gobuster_wordlist: str = "/usr/share/wordlists/dirb/common.txt"
     whatweb: bool = True
+    sqlmap: bool = False
     hydra: bool = False
     exploit: bool = False
 
@@ -26,6 +27,7 @@ class TierConfig:
             "nikto": self.nikto,
             "gobuster": self.gobuster,
             "whatweb": self.whatweb,
+            "sqlmap": self.sqlmap,
             "hydra": self.hydra,
             "exploit": self.exploit,
         }
@@ -34,26 +36,28 @@ class TierConfig:
 # Perfiles predefinidos
 FAST = TierConfig(
     name="fast",
-    description="Escaneo rápido: nmap top 1000 puertos + whatweb",
+    description="Escaneo rápido: nmap + whatweb + sqlmap",
     nmap_flags="-sV -sC --min-rate 5000 -T5 --top-ports 1000",
     whatweb=True,
+    sqlmap=True,
 )
 
 FULL = TierConfig(
     name="full",
-    description="Escaneo completo: nmap full port scan + nikto + gobuster + whatweb",
+    description="Escaneo completo: nmap + nikto + gobuster + whatweb + sqlmap",
     nmap_flags="-sV -sC --min-rate 3000 -T4 -p-",
     nikto=True,
     gobuster=True,
     whatweb=True,
-    hydra=False,
+    sqlmap=True,
 )
 
 STEALTH = TierConfig(
     name="stealth",
-    description="Escaneo sigiloso: nmap lento + whatweb, sin scripts agresivos",
+    description="Escaneo sigiloso: nmap lento + whatweb + sqlmap, sin scripts agresivos",
     nmap_flags="-sS -sV -T2 --top-ports 500",
     whatweb=True,
+    sqlmap=True,
 )
 
 TIERS: dict[str, TierConfig] = {

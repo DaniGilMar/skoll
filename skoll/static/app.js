@@ -1167,7 +1167,7 @@ async function startRenacer() {
   const target = document.getElementById("renacer-target").value.trim();
   if (!target) { showToast("❌ Introduce un target", "error"); return; }
 
-  const tier = document.getElementById("renacer-tier").value;
+  const tier = "agent";
   const btn = document.getElementById("renacer-btn");
   const log = document.getElementById("renacer-log");
 
