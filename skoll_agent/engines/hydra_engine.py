@@ -12,10 +12,28 @@ class HydraEngine(BaseEngine):
     description = "Password brute-forcer. Ataca servicios como SSH, HTTP, FTP, SMB, MySQL, etc."
     capabilities = ["bruteforce", "password_attack", "auth_bypass"]
 
+    WORDLISTS: dict[str, tuple[str, str]] = {
+        "ssh": ("/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
+                "/usr/share/wordlists/fasttrack.txt"),
+        "ftp": ("/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
+                "/usr/share/wordlists/fasttrack.txt"),
+        "telnet": ("/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
+                   "/usr/share/wordlists/fasttrack.txt"),
+        "mysql": ("root", "/usr/share/wordlists/fasttrack.txt"),
+        "postgresql": ("postgres", "/usr/share/wordlists/fasttrack.txt"),
+        "imap": ("/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
+                 "/usr/share/wordlists/seclists/Passwords/darkweb2017-top100.txt"),
+        "pop3": ("/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
+                 "/usr/share/wordlists/seclists/Passwords/darkweb2017-top100.txt"),
+        "smtp": ("/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
+                 "/usr/share/wordlists/fasttrack.txt"),
+    }
+
     def scan(self, target: str, **kwargs: Any) -> EngineResult:
         service = kwargs.get("service", "ssh")
-        userlist = kwargs.get("userlist", "/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt")
-        passlist = kwargs.get("passlist", "/usr/share/wordlists/fasttrack.txt")
+        wordlists = self.WORDLISTS.get(service, self.WORDLISTS["ssh"])
+        userlist = kwargs.get("userlist", wordlists[0])
+        passlist = kwargs.get("passlist", wordlists[1])
         port = kwargs.get("port", "")
 
         args = ["hydra", "-L", userlist, "-P", passlist, target]

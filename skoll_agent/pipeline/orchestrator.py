@@ -602,7 +602,16 @@ If RETRY, include a brief recovery command/approach.
                     state=raw.get("state", "open"),
                 )
                 phase.ports.append(port)
-                self._emit_log(f"  Puerto {pnum}/{raw.get('protocol', 'tcp')}: {svc} {raw.get('product', '')} {raw.get('version', '')}".strip())
+                state_tag = "🔒" if port.state == "filtered" else "🔓"
+                self._emit_log(f"  {state_tag} Puerto {pnum}/{raw.get('protocol', 'tcp')}: {svc} {raw.get('product', '')} {raw.get('version', '')} [{port.state}]".strip())
+
+        # Detectar si todos los puertos están filtrados
+        open_count = sum(1 for p in phase.ports if p.state == "open")
+        filtered_count = sum(1 for p in phase.ports if p.state == "filtered")
+        if phase.ports and open_count == 0:
+            self._emit_log(f"  ⚠️ TODOS los {len(phase.ports)} puertos están FILTRADOS por firewall")
+            self._emit_log(f"  → El target {self.target} tiene un firewall perimetral que bloquea las conexiones")
+            self._emit_log(f"  → Las herramientas de enumeración y explotación se saltarán estos puertos")
 
         # Feedback loop: nmap result puede sugerir más escaneos
         nmap_text = phase.raw_outputs.get("nmap", "")
@@ -641,6 +650,12 @@ If RETRY, include a brief recovery command/approach.
             self._emit_log("Fase 1: ENUM — Sin puertos descubiertos, saltando")
             phase.skip("No hay puertos disponibles")
             return
+
+        # Contar puertos abiertos vs filtrados
+        open_ports = [p for p in recon.ports if p.state == "open"]
+        filtered_ports = [p for p in recon.ports if p.state == "filtered"]
+        if not open_ports and filtered_ports:
+            self._emit_log(f"  ⚠️ {len(filtered_ports)} puertos filtrados (firewall). Solo se enumerarán puertos abiertos.")
 
         self._emit_log("Fase 1: ENUM — Enumeración de servicios")
 
@@ -896,8 +911,12 @@ If RETRY, include a brief recovery command/approach.
                 else:
                     self._emit_log(f"  sqlmap saltado: sin páginas dinámicas detectadas en {url}")
 
-            # Hydra on auth services
-            if service in ("ssh", "ftp", "telnet", "mysql", "postgresql", "imap", "pop3"):
+            # Hydra on auth services (solo si el puerto está accesible)
+            if service in ("ssh", "ftp", "telnet", "mysql", "postgresql",
+                           "imap", "imaps", "pop3", "pop3s", "smtp", "smtps"):
+                if port_info.state == "filtered":
+                    self._emit_log(f"  hydra saltado: {service}://{self.target}:{port_info.port} está filtrado por firewall")
+                    continue
                 self._emit_log(f"  Probando hydra en {service}://{self.target}:{port_info.port}")
                 self._run_tool("hydra", self.target, phase, extra={
                     "service": service,

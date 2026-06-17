@@ -66,8 +66,7 @@ class NmapEngine(BaseEngine):
                     port_id = port.get("portid", "")
                     protocol = port.get("protocol", "")
                     state_el = port.find("state")
-                    if state_el is not None and state_el.get("state") != "open":
-                        continue
+                    port_state = state_el.get("state", "unknown") if state_el is not None else "unknown"
                     service = port.find("service")
                     service_name = service.get("name", "unknown") if service is not None else "unknown"
                     service_product = service.get("product", "") if service is not None else ""
@@ -75,9 +74,9 @@ class NmapEngine(BaseEngine):
                     findings.append({
                         "file_path": ip,
                         "line_start": 0, "line_end": 0,
-                        "severity": "info",
-                        "title": f"Open port: {port_id}/{protocol} - {service_name}",
-                        "description": f"Port {port_id}/{protocol} is open. Service: {service_name} {service_product} {service_version}".strip(),
+                        "severity": "info" if port_state == "open" else "low",
+                        "title": f"{'Open' if port_state == 'open' else 'Filtered'} port: {port_id}/{protocol} - {service_name}",
+                        "description": f"Port {port_id}/{protocol} is {port_state}. Service: {service_name} {service_product} {service_version}".strip(),
                         "tool": self.name,
                         "rule_id": f"port-{port_id}",
                         "port": int(port_id),
@@ -85,8 +84,11 @@ class NmapEngine(BaseEngine):
                         "service": service_name,
                         "product": service_product,
                         "version": service_version,
+                        "state": port_state,
                         "ip": ip,
                     })
+                    if port_state != "open":
+                        continue
 
                     # Parse vuln script results
                     for script in port.findall("script"):
