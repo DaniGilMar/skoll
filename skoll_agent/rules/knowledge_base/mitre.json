@@ -1,0 +1,62 @@
+{
+  "SMB_SIGNING_DISABLED": {
+    "severity": "high",
+    "mitre": "T1557.001",
+    "mitre_name": "Adversary-in-the-Middle",
+    "cve_refs": [],
+    "recommendation": "Activar SMB Signing en la configuración del servidor. En Windows: 'Set-SmbServerConfiguration -RequireSecuritySignature $true'.",
+    "cvss": {"vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N", "score": 9.1},
+    "references": ["https://attack.mitre.org/techniques/T1557/001/"]
+  },
+  "FTP_ANONYMOUS": {
+    "severity": "high",
+    "mitre": "T1046",
+    "mitre_name": "Network Service Scanning",
+    "cve_refs": [],
+    "recommendation": "Deshabilitar el acceso FTP anónimo. En vsftpd: anonymous_enable=NO.",
+    "references": ["https://attack.mitre.org/techniques/T1046/"]
+  },
+  "REDIS_NO_AUTH": {
+    "severity": "critical",
+    "mitre": "T1210",
+    "mitre_name": "Exploitation of Remote Services",
+    "cve_refs": ["CVE-2022-0543"],
+    "recommendation": "Configurar requirepass en redis.conf. Usar contraseña robusta y firewall para restringir acceso.",
+    "cvss": {"vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "score": 9.8},
+    "references": ["https://attack.mitre.org/techniques/T1210/"]
+  },
+  "MYSQL_DEFAULT_CREDS": {
+    "severity": "critical",
+    "mitre": "T1078.001",
+    "mitre_name": "Default Accounts",
+    "cve_refs": [],
+    "recommendation": "Ejecutar mysql_secure_installation. Cambiar contraseña root y eliminar cuentas anónimas.",
+    "cvss": {"vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "score": 9.8},
+    "references": ["https://attack.mitre.org/techniques/T1078/001/"]
+  },
+  "POSTGRES_DEFAULT_CREDS": {
+    "severity": "critical",
+    "mitre": "T1078.001",
+    "mitre_name": "Default Accounts",
+    "cve_refs": [],
+    "recommendation": "Cambiar la contraseña del usuario postgres. Usar ALTER USER postgres WITH PASSWORD 'nueva';",
+    "cvss": {"vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "score": 9.8}
+  },
+  "PORT_OPEN": {
+    "severity": "low",
+    "mitre": "T1046",
+    "mitre_name": "Network Service Scanning",
+    "cve_refs": [],
+    "recommendation": "Revisar si el puerto necesita estar expuesto. Si no, aplicar regla de firewall restrictiva."
+  },
+  "PORT_FILTERED": {
+    "severity": "info",
+    "mitre": "",
+    "recommendation": "Verificar reglas de firewall. El puerto está siendo bloqueado a nivel de red."
+  },
+  "WEB_SERVER_DETECTED": {
+    "severity": "info",
+    "mitre": "T1046",
+    "recommendation": "Auditar configuración del servidor web: cabeceras de seguridad, métodos HTTP, directorios expuestos."
+  }
+}

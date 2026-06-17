@@ -1,0 +1,76 @@
+{
+  "rules": [
+    {
+      "id": "SMB_SIGNING_DISABLED",
+      "title": "SMB Signing deshabilitado",
+      "description": "El servidor SMB no requiere firmado de paquetes. Permite ataques de relay NTLM (SMBRelay).",
+      "severity": "high",
+      "mitre": "T1557.001",
+      "conditions": ["service == 'smb'", "flags contains SMB_SIGNING_DISABLED"],
+      "recommendation": "Activar SMB Signing en la configuración del servidor"
+    },
+    {
+      "id": "FTP_ANONYMOUS",
+      "title": "FTP anónimo habilitado",
+      "description": "El servidor FTP permite login anónimo. Cualquier usuario puede acceder sin credenciales.",
+      "severity": "high",
+      "mitre": "T1046",
+      "conditions": ["service == 'ftp'", "flags contains ANONYMOUS_LOGIN"],
+      "recommendation": "Deshabilitar el acceso FTP anónimo"
+    },
+    {
+      "id": "REDIS_NO_AUTH",
+      "title": "Redis sin autenticación",
+      "description": "El servidor Redis no requiere contraseña. Acceso completo a datos en memoria.",
+      "severity": "critical",
+      "mitre": "T1210",
+      "conditions": ["service == 'redis'", "flags contains NO_AUTH"],
+      "recommendation": "Configurar requirepass en redis.conf"
+    },
+    {
+      "id": "MYSQL_DEFAULT_CREDS",
+      "title": "MySQL con credenciales por defecto",
+      "description": "El servidor MySQL acepta la combinación root:(vacío) o root:root.",
+      "severity": "critical",
+      "mitre": "T1078.001",
+      "conditions": ["service == 'mysql'", "flags contains DEFAULT_CREDS"],
+      "recommendation": "Cambiar la contraseña del usuario root de MySQL"
+    },
+    {
+      "id": "POSTGRES_DEFAULT_CREDS",
+      "title": "PostgreSQL con credenciales por defecto",
+      "description": "El servidor PostgreSQL acepta postgres:postgres o postgres:(vacío).",
+      "severity": "critical",
+      "mitre": "T1078.001",
+      "conditions": ["service == 'postgresql'", "flags contains DEFAULT_CREDS"],
+      "recommendation": "Cambiar la contraseña del usuario postgres"
+    },
+    {
+      "id": "PORT_OPEN",
+      "title": "Puerto abierto",
+      "description": "Puerto accesible desde la red. Debe ser justificado según política de seguridad.",
+      "severity": "low",
+      "mitre": "T1046",
+      "conditions": ["state == 'open'"],
+      "recommendation": "Evaluar si el puerto debe estar expuesto"
+    },
+    {
+      "id": "PORT_FILTERED",
+      "title": "Puerto filtrado por firewall",
+      "description": "El puerto responde como filtrado. Firewall perimetral detectado.",
+      "severity": "info",
+      "mitre": "",
+      "conditions": ["state == 'filtered'"],
+      "recommendation": "Verificar reglas de firewall si se necesita acceso"
+    },
+    {
+      "id": "WEB_SERVER_DETECTED",
+      "title": "Servidor web expuesto",
+      "description": "Servidor web detectado en puerto estándar HTTP/HTTPS.",
+      "severity": "info",
+      "mitre": "T1046",
+      "conditions": ["service in 'http,https'"],
+      "recommendation": "Revisar configuración de seguridad del servidor web"
+    }
+  ]
+}
