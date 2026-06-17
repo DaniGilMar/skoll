@@ -6,18 +6,8 @@ from typing import Any
 
 
 def check_wordlists() -> list[dict[str, Any]]:
-    paths = [
-        "/usr/share/wordlists/fasttrack.txt",
-        "/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
-        "/usr/share/wordlists/seclists/Passwords/darkweb2017-top100.txt",
-    ]
-    results = []
-    for p in paths:
-        results.append({
-            "path": p, "exists": os.path.exists(p),
-            "size": os.path.getsize(p) if os.path.exists(p) else 0,
-        })
-    return results
+    from skoll_agent.config.wordlists import check_wordlists as _check_wl
+    return _check_wl()
 
 
 def check_kali_tools() -> list[dict[str, Any]]:

@@ -255,38 +255,6 @@ class Orchestrator:
             return {}
         return {"observations": observations}
 
-    def _run_nikto(self, target: str) -> dict[str, Any]:
-        from core.run import run_command
-        import uuid
-        outfile = f"/tmp/skoll_nikto_{uuid.uuid4().hex[:8]}.txt"
-        url = f"http://{target}" if not target.startswith("http") else target
-        cmd = ["nikto", "-h", url, "-o", outfile, "-Format", "txt", "-Tuning", "123467"]
-        result = run_command(cmd, description=f"nikto {url}", timeout=600)
-        try:
-            with open(outfile) as f:
-                output = f.read()
-            return {"observations": [{"port": 80, "service": "http", "state": "open", "flags": [], "raw": {"nikto_output": output[:5000]}}]}
-        except (FileNotFoundError, PermissionError):
-            return {"observations": []}
-        finally:
-            import os
-            try: os.remove(outfile)
-            except: pass
-
-    def _run_gobuster(self, target: str) -> dict[str, Any]:
-        from core.run import run_command
-        wordlist = "/usr/share/wordlists/dirb/common.txt"
-        url = f"http://{target}" if not target.startswith("http") else target
-        cmd = ["gobuster", "dir", "-u", url, "-w", wordlist, "-q", "-t", "20", "--timeout", "5s"]
-        result = run_command(cmd, description=f"gobuster {url}", timeout=300)
-        output = (result.get("stdout") or "") + (result.get("stderr") or "")
-        observations = []
-        for line in output.split("\n"):
-            parts = line.strip().split()
-            if len(parts) >= 2 and parts[0].startswith("/"):
-                observations.append({"port": 80, "service": "http", "state": "open", "flags": ["DIR_ENUM"], "raw": {"path": parts[0], "status": parts[1]}})
-        return {"observations": observations} if observations else {}
-
     def _run_whatweb(self, target: str) -> dict[str, Any]:
         from core.run import run_command
         url = f"http://{target}" if not target.startswith("http") else target
@@ -343,8 +311,9 @@ class Orchestrator:
             except: pass
 
     def _run_gobuster(self, target: str) -> dict[str, Any]:
+        from skoll_agent.config.wordlists import resolve_wordlist
         from core.run import run_command
-        wordlist = "/usr/share/wordlists/dirb/common.txt"
+        wordlist = resolve_wordlist("web_directories_common")
         url = f"http://{target}" if not target.startswith("http") else target
         cmd = ["gobuster", "dir", "-u", url, "-w", wordlist, "-q", "-t", "20", "--timeout", "5s"]
         result = run_command(cmd, description=f"gobuster {url}", timeout=300)

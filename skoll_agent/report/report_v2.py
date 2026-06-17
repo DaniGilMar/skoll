@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-REPORTS_ROOT = Path("/home/dani/Documentos/Skoll_Informes")
+REPORTS_ROOT = Path(os.environ.get("SKOLL_REPORTS_DIR", "/home/dani/Documentos/Skoll_Informes"))
 
 
 class ReportGeneratorV2:

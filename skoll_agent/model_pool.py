@@ -109,7 +109,7 @@ class ModelPool:
                     err = e
 
             # Intentar OpenRouter si Groq falló
-            if self.openrouter and not err:
+            if self.openrouter:
                 try:
                     resp = self.openrouter._call(prompt, model=model)
                     if cost_tracker:

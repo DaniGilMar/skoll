@@ -39,9 +39,14 @@ class ReportGenerator:
             "medium": "#ffc107", "low": "#28a745", "info": "#17a2b8",
         }
 
-        chain_analysis = p.get_phase_by_id("chain") if hasattr(p, "get_phase_by_id") else {}
-        chain_data = chain_analysis.get("metadata", {}).get("chain_analysis", {}) if isinstance(chain_analysis, dict) else {}
-        remediation = chain_data.get("remediation_summary", [])
+        chain_phase = p.phases.get("chain", {})
+        if hasattr(chain_phase, "metadata"):
+            chain_data = chain_phase.metadata.get("chain_analysis", {})
+        elif isinstance(chain_phase, dict):
+            chain_data = chain_phase.get("metadata", {}).get("chain_analysis", {})
+        else:
+            chain_data = {}
+        remediation = chain_data.get("remediation_summary", []) if isinstance(chain_data, dict) else []
 
         findings_rows = ""
         for f in findings:

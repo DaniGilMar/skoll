@@ -44,9 +44,9 @@ class FlagEngine(BaseEngine):
         seen: set[str] = set()
 
         for lineno, line in enumerate(lines, 1):
-            for neg in NEGATIVE_PATTERNS:
-                if neg.search(line):
-                    continue
+            neg_match = any(neg.search(line) for neg in NEGATIVE_PATTERNS)
+            if neg_match:
+                continue
 
             for pattern, pname in FLAG_PATTERNS:
                 for match in re.finditer(pattern, line, re.IGNORECASE):

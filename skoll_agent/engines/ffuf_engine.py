@@ -13,7 +13,8 @@ class FfufEngine(BaseEngine):
     capabilities = ["dir_bruteforce", "web_discovery", "fuzzing"]
 
     def scan(self, target: str, **kwargs: Any) -> EngineResult:
-        wordlist = kwargs.get("wordlist", "/usr/share/wordlists/dirb/common.txt")
+        from skoll_agent.config.wordlists import resolve_wordlist
+        wordlist = resolve_wordlist("web_directories_common", kwargs.get("wordlist"))
         threads = int(kwargs.get("threads", 30))
         extensions = kwargs.get("extensions", ".php,.txt,.html")
         rate_limit = int(kwargs.get("rate_limit", 200))

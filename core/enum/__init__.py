@@ -101,7 +101,8 @@ def snmp_enum(target: str, community: str = "public") -> dict[str, Any]:
     """Enumeración SNMP: comunidades abiertas, sistema, procesos, interfaces, usuarios."""
     lines = []
     # Test common community strings
-    result = run_command(["onesixtyone", "-c", "/usr/share/wordlists/snmp-strings.txt" if os.path.exists("/usr/share/wordlists/snmp-strings.txt") else "/dev/null", target], description=f"onesixtyone {target}", timeout=60)
+    wl_path = "/usr/share/wordlists/snmp-strings.txt" if os.path.exists("/usr/share/wordlists/snmp-strings.txt") else "/dev/null"
+    result = run_command(["onesixtyone", "-c", wl_path, target], description=f"onesixtyone {target}", timeout=60)
     out = (result.get("stdout") or "") + (result.get("stderr") or "")
     if target in out and "responding" in out:
         communities = re.findall(r"\[([^\]]+)\]", out)

@@ -8,6 +8,11 @@ from typing import Any
 from skoll_agent.engines.base_engine import BaseEngine, EngineResult
 
 
+def _get_passfile() -> str:
+    from skoll_agent.config.wordlists import get_tool_wordlist
+    return get_tool_wordlist("msfconsole")
+
+
 class MsfconsoleEngine(BaseEngine):
     name = "msfconsole"
     description = "Metasploit automation via resource scripts. Escanea servicios con módulos auxiliares."
@@ -95,7 +100,7 @@ class MsfconsoleEngine(BaseEngine):
                 if port:
                     rc_lines.append(f"set RPORT {port}")
                 rc_lines.append('set USERNAME root')
-                rc_lines.append('set PASS_FILE /usr/share/wordlists/fasttrack.txt')
+                rc_lines.append(f'set PASS_FILE {_get_passfile()}')
                 rc_lines.append("set STOP_ON_SUCCESS true")
                 rc_lines.append("run")
 
@@ -110,7 +115,7 @@ class MsfconsoleEngine(BaseEngine):
                 if port:
                     rc_lines.append(f"set RPORT {port}")
                 rc_lines.append('set USERNAME postgres')
-                rc_lines.append('set PASS_FILE /usr/share/wordlists/fasttrack.txt')
+                rc_lines.append(f'set PASS_FILE {_get_passfile()}')
                 rc_lines.append("set STOP_ON_SUCCESS true")
                 rc_lines.append("run")
 

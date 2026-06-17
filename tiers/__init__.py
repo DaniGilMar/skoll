@@ -13,7 +13,7 @@ class TierConfig:
     nmap_script: str = ""
     nikto: bool = False
     gobuster: bool = False
-    gobuster_wordlist: str = "/usr/share/wordlists/dirb/common.txt"
+    gobuster_wordlist: str = ""
     whatweb: bool = True
     sqlmap: bool = False
     hydra: bool = False

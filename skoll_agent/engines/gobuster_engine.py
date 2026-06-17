@@ -13,7 +13,8 @@ class GobusterEngine(BaseEngine):
     capabilities = ["dir_bruteforce", "dns_bruteforce", "web_discovery"]
 
     def scan(self, target: str, **kwargs: Any) -> EngineResult:
-        wordlist = kwargs.get("wordlist", "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt")
+        from skoll_agent.config.wordlists import resolve_wordlist
+        wordlist = resolve_wordlist("web_directories_medium", kwargs.get("wordlist"))
         mode = kwargs.get("mode", "dir")
         progress_cb = kwargs.get("progress_callback")
         extensions = kwargs.get("extensions", ".php,txt,html")

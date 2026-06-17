@@ -283,9 +283,10 @@ def _run_sqlmap(url: str) -> dict[str, Any]:
 
 
 def _run_gobuster(url: str) -> dict[str, Any]:
+    from skoll_agent.config.wordlists import resolve_wordlist
     if not url:
         return {"status": "error", "error": "url requerida"}
-    wordlist = "/usr/share/wordlists/dirb/common.txt"
+    wordlist = resolve_wordlist("web_directories_common")
     cmd = ["gobuster", "dir", "-u", url, "-w", wordlist, "-q", "-t", "20", "--timeout", "5s"]
     result = run_command(cmd, description=f"directory_enum {url}", timeout=300)
     output = (result.get("stdout") or "") + (result.get("stderr") or "")

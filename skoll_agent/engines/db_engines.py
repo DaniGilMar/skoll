@@ -127,7 +127,7 @@ class PostgresEngine(BaseEngine):
         raw_lines = []
 
         for user, passwd in creds:
-            export_cmd = f"export PGPASSWORD='{passwd}'"
+            env = {"PGPASSWORD": passwd}
             args = [
                 "psql", "-h", target, "-p", str(port),
                 "-U", user, "-c", "SELECT 1;",
@@ -135,7 +135,7 @@ class PostgresEngine(BaseEngine):
             ]
             try:
                 r = subprocess.run(
-                    ["sh", "-c", f"{export_cmd} && {' '.join(args)}"],
+                    args, env=env,
                     capture_output=True, text=True, timeout=timeout_s,
                 )
                 output = r.stdout + r.stderr

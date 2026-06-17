@@ -13,30 +13,32 @@ class HydraEngine(BaseEngine):
     capabilities = ["bruteforce", "password_attack", "auth_bypass"]
 
     WORDLISTS: dict[str, tuple[str, str]] = {
-        "ssh": ("/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
-                "/usr/share/wordlists/fasttrack.txt"),
-        "ftp": ("/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
-                "/usr/share/wordlists/fasttrack.txt"),
-        "telnet": ("/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
-                   "/usr/share/wordlists/fasttrack.txt"),
-        "mysql": ("root", "/usr/share/wordlists/fasttrack.txt"),
-        "postgresql": ("postgres", "/usr/share/wordlists/fasttrack.txt"),
-        "imap": ("/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
-                 "/usr/share/wordlists/seclists/Passwords/darkweb2017-top100.txt"),
-        "pop3": ("/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
-                 "/usr/share/wordlists/seclists/Passwords/darkweb2017-top100.txt"),
-        "smtp": ("/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt",
-                 "/usr/share/wordlists/fasttrack.txt"),
+        "ssh": ("usernames", "passwords_fast"),
+        "ftp": ("usernames", "passwords_fast"),
+        "telnet": ("usernames", "passwords_fast"),
+        "mysql": ("root", "passwords_common"),
+        "postgresql": ("postgres", "passwords_common"),
+        "imap": ("usernames", "passwords_common"),
+        "pop3": ("usernames", "passwords_common"),
+        "smtp": ("usernames", "passwords_fast"),
     }
 
     def scan(self, target: str, **kwargs: Any) -> EngineResult:
+        from skoll_agent.config.wordlists import get_wordlist
         service = kwargs.get("service", "ssh")
         wordlists = self.WORDLISTS.get(service, self.WORDLISTS["ssh"])
-        userlist = kwargs.get("userlist", wordlists[0])
-        passlist = kwargs.get("passlist", wordlists[1])
+
+        user_spec = kwargs.get("userlist", wordlists[0])
+        if user_spec in ("root", "postgres"):
+            user_arg = ["-l", user_spec]
+        else:
+            user_arg = ["-L", get_wordlist(user_spec)]
+
+        pass_spec = kwargs.get("passlist", wordlists[1])
+        passlist = get_wordlist(pass_spec)
         port = kwargs.get("port", "")
 
-        args = ["hydra", "-L", userlist, "-P", passlist, target]
+        args = ["hydra"] + user_arg + ["-P", passlist, target]
         if port:
             args.extend(["-s", str(port)])
         args.append(service)

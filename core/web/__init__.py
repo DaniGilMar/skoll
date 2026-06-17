@@ -14,9 +14,10 @@ logger = get_logger()
 
 
 def ffuf_enum(url: str, wordlist: str = "", mode: str = "dir") -> dict[str, Any]:
+    from skoll_agent.config.wordlists import resolve_wordlist
     """Fuzzing con ffuf: directorios, parámetros, VHOST."""
     outfile = "/tmp/skoll_ffuf.json"
-    default_wordlist = "/usr/share/wordlists/dirb/common.txt"
+    default_wordlist = resolve_wordlist("web_directories_common")
     wl = wordlist or default_wordlist
     if not os.path.exists(wl):
         return {"status": "ok", "result": f"Wordlist no encontrada: {wl}"}

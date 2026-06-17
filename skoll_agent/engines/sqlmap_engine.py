@@ -22,7 +22,10 @@ class SqlmapEngine(BaseEngine):
             args.extend(["--level", str(kwargs["level"])])
         if kwargs.get("risk"):
             args.extend(["--risk", str(kwargs["risk"])])
-        args.append("--forms" if kwargs.get("forms") else "--dbs")
+        if kwargs.get("forms"):
+            args.append("--forms")
+        elif kwargs.get("dbs", True):
+            args.append("--dbs")
 
         try:
             result = subprocess.run(args, capture_output=True, text=True, timeout=kwargs.get("timeout", 300))

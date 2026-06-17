@@ -56,3 +56,85 @@ register_engine("cadaver", CadaverEngine)
 register_engine("msfconsole", MsfconsoleEngine)
 from skoll_agent.engines.exploit_dispatcher import ExploitDispatcher
 register_engine("exploit_dispatcher", ExploitDispatcher)
+
+# Fase 4 — APIs
+from skoll_agent.engines.rest_engine import RestEngine
+from skoll_agent.engines.graphql_engine import GraphQLEngine
+from skoll_agent.engines.jwt_engine import JwtEngine
+from skoll_agent.engines.rate_limit_engine import RateLimitEngine
+from skoll_agent.engines.authz_engine import AuthzEngine
+from skoll_agent.engines.kiterunner_engine import KiterunnerEngine
+from skoll_agent.engines.postman_engine import PostmanEngine
+from skoll_agent.engines.burpsuite_engine import BurpSuiteEngine
+
+register_engine("rest", RestEngine)
+register_engine("graphql", GraphQLEngine)
+register_engine("jwt", JwtEngine)
+register_engine("rate_limit", RateLimitEngine)
+register_engine("authz", AuthzEngine)
+register_engine("kiterunner", KiterunnerEngine)
+register_engine("postman", PostmanEngine)
+register_engine("burpsuite", BurpSuiteEngine)
+
+# Fase 5 — Active Directory
+from skoll_agent.engines.ldap_engine import LdapEngine
+from skoll_agent.engines.kerberos_engine import KerberosEngine
+from skoll_agent.engines.impacket_engine import ImpacketEngine
+from skoll_agent.engines.bloodhound_engine import BloodHoundEngine
+from skoll_agent.engines.mimikatz_engine import MimikatzEngine
+from skoll_agent.engines.rubeus_engine import RubeusEngine
+
+register_engine("ldap", LdapEngine)
+register_engine("kerberos", KerberosEngine)
+register_engine("impacket", ImpacketEngine)
+register_engine("bloodhound", BloodHoundEngine)
+register_engine("mimikatz", MimikatzEngine)
+register_engine("rubeus", RubeusEngine)
+
+# Fase 6 — Password & Credentials
+from skoll_agent.engines.hashcat_engine import HashcatEngine
+from skoll_agent.engines.john_engine import JohnEngine
+from skoll_agent.engines.spray_engine import SprayEngine
+
+register_engine("hashcat", HashcatEngine)
+register_engine("john", JohnEngine)
+register_engine("spray", SprayEngine)
+
+# Fase 7 — Cloud Security
+from skoll_agent.engines.iam_engine import IamEngine
+from skoll_agent.engines.storage_engine import StorageEngine
+from skoll_agent.engines.secrets_engine import SecretsEngine
+from skoll_agent.engines.k8s_engine import K8sEngine
+
+register_engine("iam", IamEngine)
+register_engine("storage", StorageEngine)
+register_engine("secrets", SecretsEngine)
+register_engine("k8s", K8sEngine)
+
+# Fase 8 — Mobile Security
+from skoll_agent.engines.mobsf_engine import MobsfEngine
+from skoll_agent.engines.frida_engine import FridaEngine
+from skoll_agent.engines.jadx_engine import JadxEngine
+from skoll_agent.engines.apk_engine import ApkEngine
+
+register_engine("mobsf", MobsfEngine)
+register_engine("frida", FridaEngine)
+register_engine("jadx", JadxEngine)
+register_engine("apk", ApkEngine)
+
+# Fase 9 — Red Team Simulation
+from skoll_agent.engines.sliver_engine import SliverEngine
+from skoll_agent.engines.empire_engine import EmpireEngine
+from skoll_agent.engines.redteam_engine import RedteamEngine
+
+register_engine("sliver", SliverEngine)
+register_engine("empire", EmpireEngine)
+register_engine("redteam", RedteamEngine)
+
+# CVE-to-Metasploit bridge
+from skoll_agent.engines.cve2msf_engine import CVE2MSFEngine
+register_engine("cve2msf", CVE2MSFEngine)
+
+# Fase 11 — Reporting
+from skoll_agent.engines.reporting_engine import ReportingEngine
+register_engine("reporting", ReportingEngine)
