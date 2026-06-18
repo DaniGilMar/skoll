@@ -1,8 +1,11 @@
 import asyncio
 import json
 import os
+import queue
+import threading
 import uuid
 from pathlib import Path
+from typing import Any
 
 # Auto-load .env from project root
 _env_path = Path(__file__).resolve().parent.parent / ".env"
@@ -276,7 +279,136 @@ async def chat_message(request: Request):
     return StreamingResponse(sse_stream_chat(chat, message), media_type="text/event-stream")
 
 
+# ── Ragnarök Workflow ─────────────────────────────────────────────────────
 
+_ragnarok_queues: dict[str, queue.Queue] = {}
+_ragnarok_results: dict[str, dict[str, Any]] = {}
+
+def _format_ragnarok_for_chat(structured: dict[str, Any]) -> str:
+    parts = ["## Resultados del Workflow Ragnarök\n"]
+    summary = structured.get("workflow_summary", {})
+    parts.append(f"Workers ejecutados: {summary.get('total_workers', 0)} "
+                  f"({summary.get('successful', 0)} exitosos, "
+                  f"{summary.get('failed', 0)} fallos)")
+    parts.append(f"Hallazgos totales: {summary.get('total_findings', 0)}")
+    parts.append(f"Duración total: {summary.get('duration', 0):.1f}s\n")
+    workers = structured.get("workers", {})
+    for wname, wresults in workers.items():
+        for wr in wresults:
+            if wr.get("success"):
+                parts.append(f"\n### {wname.upper()} — {wr.get('target', '')}")
+                for f in wr.get("findings", [])[:20]:
+                    sev = f.get("severity", "info")
+                    icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵", "info": "⚪"}
+                    parts.append(f"  {icon.get(sev, '⚪')} [{sev.upper()}] {f.get('name', '')}")
+                    desc = f.get("description", "")
+                    if desc:
+                        parts.append(f"    {desc[:150]}")
+            else:
+                parts.append(f"\n### {wname.upper()} — ERROR: {wr.get('error', '')[:100]}")
+    return "\n".join(parts)
+
+
+@app.post("/api/ragnarok/scan")
+async def ragnarok_scan(request: Request):
+    body = await request.json()
+    target = body.get("target", "").strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="target is required")
+    session_id = str(uuid.uuid4())
+    q: queue.Queue = queue.Queue()
+    _ragnarok_queues[session_id] = q
+
+    def run():
+        try:
+            from skoll_agent.engines.ragnarok_engine import RagnarokEngine
+            engine = RagnarokEngine()
+            q.put({"type": "log", "data": {"message": f"Iniciando Ragnarök workflow contra {target}"}})
+            result = engine.scan(target)
+            structured = engine.get_structured_data(target)
+            structured["engine_result"] = {
+                "success": result.success,
+                "findings_count": len(result.findings),
+                "summary": result.summary,
+            }
+            _ragnarok_results[session_id] = structured
+            q.put({"type": "complete", "data": {
+                "summary": result.summary,
+                "findings": len(result.findings),
+                "structured": structured,
+            }})
+        except Exception as e:
+            import traceback
+            q.put({"type": "error", "data": {"message": f"{type(e).__name__}: {e}"}})
+            q.put({"type": "complete", "data": {"result": "error"}})
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return {"session_id": session_id, "status": "started", "target": target}
+
+
+@app.get("/api/ragnarok/stream/{session_id}")
+async def ragnarok_stream(session_id: str):
+    if session_id not in _ragnarok_queues:
+        raise HTTPException(status_code=404, detail="Session not found")
+    q = _ragnarok_queues[session_id]
+
+    def generate():
+        try:
+            while True:
+                try:
+                    evt = q.get(timeout=3)
+                    yield f"data: {json.dumps(evt)}\n\n"
+                    if evt.get("type") in ("complete", "error"):
+                        break
+                except queue.Empty:
+                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+        except GeneratorExit:
+            pass
+        finally:
+            _ragnarok_queues.pop(session_id, None)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@app.get("/api/ragnarok/result/{session_id}")
+async def ragnarok_result(session_id: str):
+    result = _ragnarok_results.get(session_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not available")
+    return result
+
+
+@app.get("/api/ragnarok/chat/{session_id}")
+async def ragnarok_chat_context(session_id: str):
+    """Devuelve los resultados formateados para que Runas (Chat) los consuma."""
+    result = _ragnarok_results.get(session_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not available")
+    formatted = _format_ragnarok_for_chat(result)
+    return {"context": formatted, "structured": result}
+
+
+# ── Ragnarök CLI helper ───────────────────────────────────────────────────
+
+@app.post("/api/ragnarok/runas/query")
+async def ragnarok_runas_query(request: Request):
+    """Consulta contextualizada de Runas sobre resultados Ragnarök."""
+    body = await request.json()
+    session_id = body.get("session_id", "")
+    query = body.get("query", "").strip()
+    if not session_id or not query:
+        raise HTTPException(status_code=400, detail="session_id and query are required")
+    result = _ragnarok_results.get(session_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not available")
+    context = _format_ragnarok_for_chat(result)
+    full_prompt = f"{context}\n\n## Consulta del analista:\n{query}\n\n## Respuesta:"
+    p = DEFAULT_PROVIDER
+    m = get_default_model(p)
+    client = get_client(p)
+    chat = client.iniciar_chat(model=m)
+    return StreamingResponse(sse_stream_chat(chat, full_prompt), media_type="text/event-stream")
 
 
 if __name__ == "__main__":

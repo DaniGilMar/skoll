@@ -24,6 +24,8 @@ from skoll_agent.engines.cve_engine import CVEEngine
 # Fase 2 engines
 from skoll_agent.engines.ffuf_engine import FfufEngine
 from skoll_agent.engines.masscan_engine import MasscanEngine
+from skoll_agent.engines.naabu_engine import NaabuEngine
+from skoll_agent.engines.katana_engine import KatanaEngine
 from skoll_agent.engines.smbmap_engine import SmbmapEngine
 from skoll_agent.engines.db_engines import RedisEngine, MySqlEngine, PostgresEngine
 from skoll_agent.engines.davtest_engine import DavtestEngine
@@ -46,6 +48,8 @@ register_engine("flag", FlagEngine)
 register_engine("cve", CVEEngine)
 register_engine("ffuf", FfufEngine)
 register_engine("masscan", MasscanEngine)
+register_engine("naabu", NaabuEngine)
+register_engine("katana", KatanaEngine)
 register_engine("smbmap", SmbmapEngine)
 register_engine("redis", RedisEngine)
 register_engine("mysql", MySqlEngine)
@@ -136,6 +140,10 @@ register_engine("redteam", RedteamEngine)
 # CVE-to-Metasploit bridge
 from skoll_agent.engines.cve2msf_engine import CVE2MSFEngine
 register_engine("cve2msf", CVE2MSFEngine)
+
+# Ragnarök workflow engine (ProjectDiscovery suite + ffuf)
+from skoll_agent.engines.ragnarok_engine import RagnarokEngine
+register_engine("ragnarok", RagnarokEngine)
 
 # Fase 11 — Reporting
 from skoll_agent.engines.reporting_engine import ReportingEngine

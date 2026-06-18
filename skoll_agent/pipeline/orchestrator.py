@@ -598,7 +598,7 @@ If RETRY, include a brief recovery command/approach.
         phase = self.pipeline.get_phase(PhaseId.RECON)
         self._emit_log("Fase 0: RECON — Descubrimiento de puertos y servicios")
 
-        # Masscan pre-scan: puertos en segundos, luego nmap solo en esos puertos
+        # Masscan pre-scan: puertos en segundos
         masscan_ports = None
         try:
             masscan_result = self._run_tool("masscan", self.target, phase, extra={"rate": 50000, "timeout": 60})
@@ -609,13 +609,37 @@ If RETRY, include a brief recovery command/approach.
         except Exception as e:
             self._emit_log(f"  masscan no disponible: {e}")
 
-        # Nmap con -p de masscan si disponible
-        extra = {"timeout": 600}
+        # Naabu primero (más rápido que nmap)
+        naabu_extra: dict[str, Any] = {"timeout": 120}
         if masscan_ports:
-            extra["ports"] = masscan_ports
-            self._emit_log(f"  nmap escaneando solo puertos de masscan: {masscan_ports}")
-        elif os.environ.get("SKOLL_NMAP_QUICK_PORTS"):
-            extra["ports"] = os.environ["SKOLL_NMAP_QUICK_PORTS"]
+            naabu_extra["ports"] = masscan_ports
+        elif os.environ.get("SKOLL_NAABU_TOP_PORTS"):
+            naabu_extra["top_ports"] = os.environ["SKOLL_NAABU_TOP_PORTS"]
+        else:
+            naabu_extra["top_ports"] = 1000
+
+        naabu_findings = []
+        try:
+            naabu_findings = self._run_tool("naabu", self.target, phase, extra=naabu_extra)
+            if naabu_findings:
+                self._emit_log(f"  naabu: {len(naabu_findings)} puertos abiertos detectados")
+        except Exception as e:
+            self._emit_log(f"  naabu no disponible: {e}")
+
+        naabu_ports = [r.get("port", 0) for r in naabu_findings if r.get("port")]
+
+        # Nmap: solo si naabu no encontró nada (fallback); si encontró, solo versionado rápido
+        if not naabu_ports:
+            self._emit_log("  naabu no encontró puertos → fallback a nmap completo")
+            extra: dict[str, Any] = {"timeout": 600}
+            if masscan_ports:
+                extra["ports"] = masscan_ports
+            elif os.environ.get("SKOLL_NMAP_QUICK_PORTS"):
+                extra["ports"] = os.environ["SKOLL_NMAP_QUICK_PORTS"]
+        else:
+            ports_str = ",".join(str(p) for p in sorted(naabu_ports))
+            self._emit_log(f"  naabu encontró {len(naabu_ports)} puertos → nmap solo versionado en: {ports_str}")
+            extra = {"timeout": 300, "ports": ports_str}
 
         findings = self._run_tool("nmap", self.target, phase, extra=extra)
 
@@ -698,12 +722,12 @@ If RETRY, include a brief recovery command/approach.
         for port_info in recon.ports:
             service = port_info.service.lower()
 
-            # Web services — gobuster + ffuf + nikto + nuclei en paralelo
+            # Web services — katana primero (crawling rápido), gobuster como fallback
             if service in ("http", "https", "http-proxy", "unknown") and port_info.state == "open":
                 proto = "https" if port_info.port in (443, 8443) else "http"
                 url = f"{proto}://{self.target}:{port_info.port}"
                 self._emit_log(f"  Web: {url}")
-                parallel_tools.append(("gobuster", url, {}))
+                parallel_tools.append(("katana", url, {"depth": 2}))
                 parallel_tools.append(("ffuf", url, {}))
                 parallel_tools.append(("nikto", url, {}))
                 parallel_tools.append(("nuclei", url, {}))
@@ -745,8 +769,22 @@ If RETRY, include a brief recovery command/approach.
         self._emit_log(f"  Ejecutando {len(parallel_tools)} herramientas en paralelo...")
         self._parallel_run_tools(parallel_tools, phase)
 
+        # Fallback: si katana no encontró nada, ejecutar gobuster
+        katana_output = phase.raw_outputs.get("katana", "")
+        katana_findings = [f for f in phase.findings if f.get("tool") == "katana"]
+        if not katana_findings and katana_output != "skip":
+            self._emit_log("  katana no encontró endpoints → fallback a gobuster")
+            for port_info in recon.ports:
+                service = port_info.service.lower()
+                if service in ("http", "https", "http-proxy", "unknown") and port_info.state == "open":
+                    proto = "https" if port_info.port in (443, 8443) else "http"
+                    url = f"{proto}://{self.target}:{port_info.port}"
+                    self._run_tool("gobuster", url, phase, {})
+        elif katana_findings:
+            self._emit_log(f"  katana encontró {len(katana_findings)} endpoints → gobuster omitido")
+
         # Feedback loop: revisar resultados de cada tool
-        for tool_name in ("gobuster", "ffuf", "nikto", "nuclei", "ftp", "smbmap", "redis", "mysql", "postgres"):
+        for tool_name in ("gobuster", "katana", "ffuf", "nikto", "nuclei", "ftp", "smbmap", "redis", "mysql", "postgres"):
             raw_out = phase.raw_outputs.get(tool_name, "")
             if raw_out:
                 self._feedback_loop(phase, tool_name, raw_out[:2000])
