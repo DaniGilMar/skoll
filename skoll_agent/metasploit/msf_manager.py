@@ -9,7 +9,7 @@ from typing import Any
 
 from pymetasploit3.msfrpc import MsfRpcClient, MsfError, MsfAuthError
 
-MSFRPCD_PORT = 55553
+MSFRPCD_PORT = 55554
 MSFRPCD_PASS = "skoll_msf_rpc_2024"
 RESTART_DELAY = 3
 MAX_RETRIES = 15
@@ -20,13 +20,12 @@ class MSFManager:
     def __init__(self, password: str = MSFRPCD_PASS, port: int = MSFRPCD_PORT):
         self.password = password
         self.port = port
-        self._process: subprocess.Popen | None = None
         self._client: MsfRpcClient | None = None
 
     def start(self) -> None:
         if self._client:
             try:
-                self._client.call("console.list")
+                _ = self._client.consoles.list
                 return
             except Exception:
                 self._client = None
@@ -39,27 +38,29 @@ class MSFManager:
 
         self._emit(f"[MSF] Starting msfrpcd on port {self.port}...")
         try:
-            self._process = subprocess.Popen(
+            subprocess.Popen(
                 [
                     "msfrpcd", "-P", self.password, "-p", str(self.port),
                     "-S", "-a", "127.0.0.1",
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                close_fds=True,
             )
         except FileNotFoundError:
             self._emit("[MSF] msfrpcd not found, RPC unavailable")
-            self._process = None
             return
         except Exception as e:
             self._emit(f"[MSF] Failed to start msfrpcd: {e}")
-            self._process = None
             return
 
-        time.sleep(RESTART_DELAY)
-        if self._process.poll() is not None:
-            self._emit(f"[MSF] msfrpcd exited prematurely (likely missing database)")
-            self._process = None
+        for _ in range(MAX_RETRIES):
+            if self._is_port_open():
+                break
+            time.sleep(RETRY_DELAY)
+
+        if not self._is_port_open():
+            self._emit("[MSF] msfrpcd failed to start (timeout)")
             return
         self._connect()
 
@@ -69,7 +70,7 @@ class MSFManager:
                 self._client = MsfRpcClient(
                     self.password, port=self.port, ssl=False
                 )
-                self._client.call("console.list")
+                _ = self._client.consoles.list
                 self._emit(f"[MSF] Connected via RPC (attempt {attempt})")
                 return
             except (MsfError, MsfAuthError, socket.error, ConnectionRefusedError) as e:
@@ -82,7 +83,7 @@ class MSFManager:
     def get_client(self) -> MsfRpcClient | None:
         if self._client:
             try:
-                self._client.call("console.list")
+                _ = self._client.consoles.list
                 return self._client
             except Exception:
                 self._client = None
@@ -94,28 +95,21 @@ class MSFManager:
         if not client:
             return self._search_cve_fallback(cve_id)
 
+        cve_num = cve_id.replace("CVE-", "").strip()
         try:
-            console_id = client.consoles.console["id"]
-            client.consoles.write(console_id, f"search name:{cve_id}\n")
-            time.sleep(3)
-            data = client.consoles.read(console_id)
+            console = client.consoles.console()
+            console.write(f"search cve:{cve_num}\n")
+            time.sleep(4)
+            data = console.read()
             output = data.get("data", "")
-            client.consoles.destroy(console_id)
+            console.destroy()
 
             match = re.search(
-                r"(exploit|auxiliary|payload)/\S+",
+                r"\d+\s+(exploit|auxiliary|payload)/\S+",
                 output,
             )
             if match:
-                module = match.group(0)
-                return {"module": module, "source": "rpc", "cve": cve_id}
-
-            match = re.search(
-                r"#\s*(\d+)\s+\S+\s+(exploit|auxiliary|payload)/\S+",
-                output,
-            )
-            if match:
-                module = match.group(2) + "/" + match.group(0).split("/", 2)[2] if "/" in match.group(0) else match.group(0)
+                module = match.group(0).strip().split(None, 1)[-1]
                 return {"module": module, "source": "rpc", "cve": cve_id}
             return None
         except Exception as e:
@@ -123,15 +117,20 @@ class MSFManager:
             return self._search_cve_fallback(cve_id)
 
     def _search_cve_fallback(self, cve_id: str) -> dict[str, Any] | None:
+        cve_num = cve_id.replace("CVE-", "").strip()
         try:
             result = subprocess.run(
-                ["msfconsole", "-q", "-c", f"search name:{cve_id}; exit"],
+                ["msfconsole", "-q", "-c", f"search cve:{cve_num}; exit"],
                 capture_output=True, text=True, timeout=60,
             )
             output = result.stdout + result.stderr
-            match = re.search(r"(exploit|auxiliary|payload)/\S+", output)
+            match = re.search(
+                r"\d+\s+(exploit|auxiliary|payload)/\S+",
+                output,
+            )
             if match:
-                return {"module": match.group(0), "source": "subprocess"}
+                module = match.group(0).strip().split(None, 1)[-1]
+                return {"module": module, "source": "subprocess"}
             return None
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return None
@@ -154,19 +153,20 @@ class MSFManager:
             )
 
         try:
-            console_id = client.consoles.console["id"]
-            cmds = [f"use {module}", f"set RHOSTS {rhosts}", f"set RPORT {rport}"]
+            console = client.consoles.console()
+            console.write(f"use {module}\n")
+            console.write(f"set RHOSTS {rhosts}\n")
+            console.write(f"set RPORT {rport}\n")
             if payload:
-                cmds.extend([f"set PAYLOAD {payload}", f"set LHOST {lhost}", f"set LPORT {lport}"])
-            cmds.append("set VERBOSE true")
+                console.write(f"set PAYLOAD {payload}\n")
+                console.write(f"set LHOST {lhost}\n")
+                console.write(f"set LPORT {lport}\n")
+            console.write("set VERBOSE true\n")
             if options:
                 for k, v in options.items():
-                    cmds.append(f"set {k} {v}")
-            cmds.append("run -z")
-            cmds.append("sessions -l")
-
-            for cmd in cmds:
-                client.consoles.write(console_id, cmd + "\n")
+                    console.write(f"set {k} {v}\n")
+            console.write("run -z\n")
+            console.write("sessions -l\n")
 
             time.sleep(5)
             elapsed = 5
@@ -175,7 +175,7 @@ class MSFManager:
             while elapsed < timeout:
                 time.sleep(2)
                 elapsed += 2
-                data = client.consoles.read(console_id)
+                data = console.read()
                 chunk = data.get("data", "")
                 if chunk:
                     output_parts.append(chunk)
@@ -196,7 +196,7 @@ class MSFManager:
                     break
                 if not busy:
                     time.sleep(1)
-                    data2 = client.consoles.read(console_id)
+                    data2 = console.read()
                     chunk2 = data2.get("data", "")
                     if chunk2:
                         output_parts.append(chunk2)
@@ -208,7 +208,7 @@ class MSFManager:
                 bool(re.search(r"\[\+\]\s+", output, re.IGNORECASE)) and not exploit_failed
             )
 
-            client.consoles.destroy(console_id)
+            console.destroy()
 
             return {
                 "success": success,
@@ -305,14 +305,15 @@ class MSFManager:
             return None
 
     def stop(self) -> None:
-        if self._process:
-            self._emit("[MSF] Stopping msfrpcd...")
-            try:
-                self._process.terminate()
-                self._process.wait(timeout=10)
-            except Exception:
-                self._process.kill()
-            self._process = None
+        self._emit("[MSF] Stopping msfrpcd...")
+        try:
+            subprocess.run(
+                ["fuser", "-k", f"{self.port}/tcp"],
+                capture_output=True, timeout=5,
+            )
+            time.sleep(1)
+        except Exception:
+            pass
         self._client = None
 
     def _is_port_open(self) -> bool:

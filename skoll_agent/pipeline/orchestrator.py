@@ -1210,9 +1210,10 @@ Sesiones Metasploit activas:
                     return True
             except Exception:
                 pass
+        cve_num = cve_id.replace("CVE-", "").strip()
         try:
             result = subprocess.run(
-                ["msfconsole", "-q", "-c", f"search name:{cve_id}; exit"],
+                ["msfconsole", "-q", "-c", f"search cve:{cve_num}; exit"],
                 capture_output=True, text=True, timeout=60,
             )
             output = result.stdout + result.stderr
