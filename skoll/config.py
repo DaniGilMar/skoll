@@ -1,7 +1,7 @@
 import os
 
-# Proveedor de IA por defecto: "groq" (compatible con API gratuita GroqCloud)
-DEFAULT_PROVIDER = os.getenv("AI_PROVIDER", "groq")
+# Proveedor de IA por defecto: "gemini" (usa GEMINI_API_KEY del .env)
+DEFAULT_PROVIDER = os.getenv("AI_PROVIDER", "gemini")
 
 # Modelo Gemini por defecto (fallback si Groq no está disponible)
 DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")

@@ -113,8 +113,7 @@ if not results:
     results.append("XSS: sin reflejo detectable en parametros basicos")
 print("\\n".join(results))
 '''.replace("REPLACE_URL", repr(url)).replace("REPLACE_PARAM", repr(param))
-    from core.agent.tools import _run_custom_script
-    return _run_custom_script(code, url)
+    return {"status": "error", "error": "XSS test not available without agent module"}
 
 
 def idor_test(url: str, param: str = "id") -> dict[str, Any]:
@@ -146,8 +145,7 @@ if not results:
     results.append("IDOR: sin acceso a recursos de otros usuarios detectable")
 print("\\n".join(results))
 '''.replace("REPLACE_URL", repr(url)).replace("REPLACE_PARAM", repr(param))
-    from core.agent.tools import _run_custom_script
-    return _run_custom_script(code, url)
+    return {"status": "error", "error": "IDOR test not available without agent module"}
 
 
 def jwt_attack(token: str, target: str = "") -> dict[str, Any]:
@@ -175,8 +173,7 @@ if not results:
     results.append("JWT: no se pudo analizar")
 print("\\n".join(results))
 '''.replace("REPLACE_TOKEN", repr(token)).replace("REPLACE_TARGET", repr(target))
-    from core.agent.tools import _run_custom_script
-    return _run_custom_script(code, target)
+    return {"status": "error", "error": "JWT attack not available without agent module"}
 
 
 def ssl_scan(target: str) -> dict[str, Any]:

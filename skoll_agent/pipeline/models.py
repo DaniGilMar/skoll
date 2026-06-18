@@ -133,5 +133,8 @@ class PipelineState:
     def has_service(self, service: str) -> bool:
         return any(service in p.service.lower() for p in self.all_ports())
 
+    def add_finding(self, finding: dict[str, Any]) -> None:
+        self.all_findings.append(finding)
+
     def has_flag(self) -> bool:
         return len(self.all_flags) > 0

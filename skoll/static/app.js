@@ -10,8 +10,6 @@ let selectedFile    = null;
 let chatSessionId   = null;
 let isStreaming     = false;
 let currentProvider = "groq";
-let agentSessionId  = null;
-let agentRunning    = false;
 let _toolResultId   = 0;
 
 const MODELS = {
@@ -120,7 +118,7 @@ async function saveApiKey() {
 
 // ── Tab switching ──────────────────────────────────────────────────────
 function switchTab(tab) {
-  const titles = { analyze: "Análisis de Código", scan: "Escaneo SAST", web: "Auditoría Web (URL)", chat: "Chat de Seguridad", agent: "Agente Autónomo", renacer: "Renacer — Pipeline Modular" };
+  const titles = { analyze: "Mímir", scan: "Heimdall", web: "Huginn", chat: "Runas", renacer: "Ragnarök" };
 
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
@@ -131,9 +129,6 @@ function switchTab(tab) {
 
   if (tab === "chat" && !chatSessionId) {
     showChatWelcome();
-  }
-  if (tab === "agent") {
-    refreshSessionList();
   }
 }
 
@@ -194,8 +189,8 @@ function restartChat() {
   if (!chatMsgs.querySelector(".chat-welcome")) {
     chatMsgs.innerHTML = `<div class="chat-welcome">
       <div class="chat-welcome-icon">🤖</div>
-      <h2>Chat de Seguridad Skoll</h2>
-      <p>Asistente DevSecOps con metodología RAPTOR activada.</p>
+      <h2>Runas — Chat de Seguridad</h2>
+      <p>El oráculo de conocimiento nórdico; consulta la sabiduría sobre vulnerabilidades y defensas.</p>
       <button class="btn btn-primary" id="start-chat-btn" onclick="startChat()">💬 Iniciar sesión de chat</button>
     </div>`;
   }
@@ -448,8 +443,8 @@ function resetChat() {
   document.getElementById("chat-messages").innerHTML = `
     <div class="chat-welcome">
       <div class="chat-welcome-icon">🤖</div>
-      <h2>Chat de Seguridad Skoll</h2>
-      <p>Asistente DevSecOps con metodología RAPTOR activada.<br/>Haz cualquier pregunta sobre vulnerabilidades, código o buenas prácticas de seguridad.</p>
+      <h2>Runas — Chat de Seguridad</h2>
+      <p>Asistente conversacional de ciberseguridad; consulta sobre vulnerabilidades, código, configuraciones y mejores prácticas.</p>
       <button class="btn btn-primary" id="start-chat-btn" onclick="startChat()">💬 Iniciar sesión de chat</button>
     </div>`;
   document.getElementById("chat-input").disabled = true;
@@ -725,271 +720,12 @@ function showError(outputBoxId, msg) {
   showToast("❌ " + msg, "error");
 }
 
-// ── AGENT — Session Management ────────────────────────────────────────
-async function refreshSessionList() {
-  const sel = document.getElementById("session-select");
-  try {
-    const res = await fetch("/api/agent/sessions");
-    const data = await res.json();
-    sel.innerHTML = '<option value="">— Nueva sesión —</option>';
-    (data.sessions || []).forEach(s => {
-      const opt = document.createElement("option");
-      opt.value = s.session_id;
-      const completed = s.completed ? "✅" : s.phase || "🔄";
-      opt.textContent = `${s.name || s.target} — it${s.iteration} [${s.findings} hallazgos] ${completed}`;
-      sel.appendChild(opt);
-    });
-    document.getElementById("session-load-btn").disabled = true;
-    document.getElementById("session-del-btn").disabled = true;
-    sel.addEventListener("change", () => {
-      const has = sel.value !== "";
-      document.getElementById("session-load-btn").disabled = !has;
-      document.getElementById("session-del-btn").disabled = !has;
-    });
-  } catch (e) {
-    console.log("Session list unavailable:", e.message);
-  }
-}
-
-async function loadSession() {
-  const sel = document.getElementById("session-select");
-  const sessionId = sel.value;
-  if (!sessionId) return;
-  if (agentRunning) {
-    showToast("❌ Espera a que el agente termine", "error");
-    return;
-  }
-  try {
-    const res = await fetch(`/api/agent/sessions/${sessionId}`);
-    if (!res.ok) throw new Error((await res.json()).detail);
-    const data = await res.json();
-    document.getElementById("agent-path-input").value = data.target || "";
-
-    // Show session info
-    const stats = data.state || {};
-    document.getElementById("agent-iteration").textContent = `${stats.iteration}/${stats.max_iterations}`;
-    document.getElementById("agent-findings-count").textContent = stats.findings_count || 0;
-    document.getElementById("agent-critical-count").textContent = stats.critical_high || 0;
-    document.getElementById("agent-scanned-count").textContent = stats.scanned_files || 0;
-    document.getElementById("agent-controls").classList.remove("hidden");
-    document.getElementById("agent-log").innerHTML = `<div class="agent-entry log">📂 Sesión cargada: ${data.name || sessionId} — ${data.updated_at || ""}</div>`;
-
-    // Resume the agent
-    await resumeAgent(sessionId);
-  } catch (e) {
-    showToast("❌ Error al cargar sesión: " + e.message, "error");
-  }
-}
-
-async function deleteSession() {
-  const sel = document.getElementById("session-select");
-  const sessionId = sel.value;
-  if (!sessionId) return;
-  if (!confirm("¿Eliminar esta sesión?")) return;
-  try {
-    await fetch(`/api/agent/sessions/${sessionId}`, { method: "DELETE" });
-    showToast("🗑️ Sesión eliminada", "success");
-    refreshSessionList();
-  } catch (e) {
-    showToast("❌ Error: " + e.message, "error");
-  }
-}
-
-async function resumeAgent(sessionId) {
-  if (agentRunning) return;
-  agentRunning = true;
-  const btn = document.getElementById("agent-start-btn");
-  btn.disabled = true;
-  btn.textContent = "Reanudando...";
-
-  try {
-    const res = await fetch(`/api/agent/resume/${sessionId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: getModel(), provider: getProvider() })
-    });
-    if (!res.ok) throw new Error((await res.json()).detail);
-    const data = await res.json();
-    agentSessionId = data.session_id;
-    appendAgentLog("log", `✅ Sesión reanudada — ${data.path}`);
-    await streamAgentEvents(agentSessionId);
-  } catch (e) {
-    appendAgentLog("error", `❌ Error: ${e.message}`);
-  } finally {
-    agentRunning = false;
-    btn.disabled = false;
-    btn.textContent = "🚀 Iniciar Agente";
-  }
-}
-
-// ── AGENT ─────────────────────────────────────────────────────────────
-async function startAgent() {
-  if (agentRunning) return;
-
-  const path = document.getElementById("agent-path-input").value.trim();
-  if (!path) {
-    showToast("❌ Introduce una ruta de proyecto", "error");
-    return;
-  }
-
-  agentRunning = true;
-  const btn = document.getElementById("agent-start-btn");
-  btn.disabled = true;
-  btn.textContent = "🤖 Ejecutando...";
-
-  document.getElementById("agent-controls").classList.remove("hidden");
-  const logEl = document.getElementById("agent-log");
-  logEl.innerHTML = "";
-
-  resetAgentStats();
-
-  try {
-    const res = await fetch("/api/agent/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path, model: getModel(), provider: getProvider() })
-    });
-    if (!res.ok) throw new Error((await res.json()).detail);
-    const data = await res.json();
-    agentSessionId = data.session_id;
-    appendAgentLog("log", `✅ Agente iniciado — Proveedor: ${data.provider} · Modelo: ${data.model}`);
-    appendAgentLog("log", `📁 Proyecto: ${data.path}`);
-    await streamAgentEvents(agentSessionId);
-  } catch (e) {
-    appendAgentLog("error", `❌ Error: ${e.message}`);
-    showToast("❌ " + e.message, "error");
-  } finally {
-    agentRunning = false;
-    btn.disabled = false;
-    btn.textContent = "🚀 Iniciar Agente";
-  }
-}
-
-async function streamAgentEvents(sessionId) {
-  try {
-    const res = await fetch(`/api/agent/stream/${sessionId}`);
-    if (!res.ok) throw new Error("Error al conectar con el stream del agente");
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop();
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        try {
-          const evt = JSON.parse(line.slice(6));
-          handleAgentEvent(evt);
-        } catch { /* ignore parse errors */ }
-      }
-    }
-  } catch (e) {
-    if (agentSessionId) {
-      appendAgentLog("error", `❌ Stream error: ${e.message}`);
-    }
-  }
-}
-
-function handleAgentEvent(evt) {
-  const type = evt.type;
-  const data = evt.data || {};
-
-  switch (type) {
-    case "heartbeat":
-      break;
-
-    case "agent_log":
-      appendAgentLog("log", data.message || "");
-      break;
-
-    case "agent_iteration":
-      document.getElementById("agent-iteration").textContent = `${data.iteration}/${data.max}`;
-      const pct = Math.round((data.iteration / data.max) * 100);
-      document.getElementById("agent-progress-fill").style.width = `${pct}%`;
-      break;
-
-    case "agent_reasoning":
-      appendAgentLog("reasoning", `🧠 ${data.reasoning || ""}`);
-      break;
-
-    case "agent_action":
-      const icon = data.success ? "✅" : "❌";
-      appendAgentLog("action", `${icon} ${data.action} → ${data.summary || ""}`);
-      updateAgentStats();
-      break;
-
-    case "agent_finding":
-      const sev = data.severity || "info";
-      const sevClass = `agent-severity-${sev}`;
-      appendAgentLog("finding",
-        `<span class="${sevClass}">[${sev.toUpperCase()}]</span> ${data.file}:${data.line} — ${data.title} (${data.tool})`
-      );
-      updateAgentStats();
-      break;
-
-    case "agent_context":
-      if (data.high_risk > 0) {
-        appendAgentLog("log", `⚠ ${data.high_risk} archivos de alto riesgo detectados`);
-      }
-      if (data.top_files) {
-        data.top_files.slice(0, 5).forEach(f => {
-          appendAgentLog("log", `  [${f.risk}] ${f.path}`);
-        });
-      }
-      updateAgentStats();
-      break;
-
-    case "agent_summary":
-      renderAgentSummary(data);
-      hideRunningTool();
-      break;
-
-    case "agent_complete":
-      hideRunningTool();
-      appendAgentLog("complete", "✅ Agente completó su misión");
-      break;
-
-    case "agent_tool_progress":
-      updateToolProgress(data.percent);
-      break;
-
-    case "agent_tool_start":
-      showRunningTool(data.tool, data.target, data.params);
-      break;
-
-    case "agent_tool_result":
-      hideRunningTool();
-      _toolResultId++;
-      const outputId = `tool-output-${_toolResultId}`;
-      let html = `<div class="tool-result-header" onclick="toggleToolOutput('${outputId}')"><span class="tool-arrow">▶</span> ${data.tool} → ${data.target} <span class="tool-result-summary">${data.summary || ""}</span></div>`;
-      if (data.raw_output) {
-        html += `<pre class="tool-raw-output hidden" id="${outputId}">${escapeHtml(data.raw_output)}</pre>`;
-      }
-      appendAgentLog("action", html);
-      break;
-
-    case "agent_exploit":
-      renderExploit(data);
-      break;
-
-    case "agent_error":
-      hideRunningTool();
-      appendAgentLog("error", `❌ ${data.message || ""}`);
-      break;
-  }
-}
-
+// ── Running tool indicator (shared) ────────────────────────────────────
 let _runningToolInterval = null;
 let _progressBarEl = null;
 
 function showRunningTool(tool, target, params) {
-  const el = document.getElementById("agent-running-tool");
+  const el = document.getElementById("renacer-running-tool");
   if (!el) return;
   el.classList.remove("hidden");
   if (_runningToolInterval) clearInterval(_runningToolInterval);
@@ -1016,7 +752,6 @@ function showRunningTool(tool, target, params) {
     const s = elapsed % 60;
     const pctEl = document.getElementById("tool-progress-pct");
     if (pctEl) {
-      // If progress events have updated the text to include %, keep it; otherwise show elapsed
       if (!pctEl.textContent.includes("%")) {
         pctEl.textContent = `${m}:${s.toString().padStart(2,"0")}`;
       }
@@ -1031,7 +766,7 @@ function updateToolProgress(pct) {
   const pctEl = document.getElementById("tool-progress-pct");
   if (pctEl) {
     pctEl.textContent = pct + "%";
-    _lastProgressTime = Date.now(); // keep it from being overwritten
+    _lastProgressTime = Date.now();
   }
 }
 
@@ -1044,122 +779,8 @@ function hideRunningTool() {
     _progressBarEl.style.width = "0%";
     _progressBarEl = null;
   }
-  const el = document.getElementById("agent-running-tool");
+  const el = document.getElementById("renacer-running-tool");
   if (el) el.classList.add("hidden");
-}
-
-function appendAgentLog(type, html) {
-  const log = document.getElementById("agent-log");
-  const entry = document.createElement("div");
-  entry.className = `agent-entry ${type}`;
-  const ts = new Date().toLocaleTimeString();
-  if (type === "reasoning") {
-    entry.innerHTML = `<span class="timestamp">${ts}</span> <span class="badge">🧠</span> ${html}`;
-  } else if (type === "action") {
-    entry.innerHTML = `<span class="timestamp">${ts}</span> <span class="badge">⚡</span> ${html}`;
-  } else if (type === "finding") {
-    entry.innerHTML = `<span class="timestamp">${ts}</span> <span class="badge">🔍</span> ${html}`;
-  } else if (type === "error") {
-    entry.innerHTML = `<span class="timestamp">${ts}</span> ${html}`;
-  } else if (type === "complete") {
-    entry.innerHTML = html;
-  } else if (type === "summary") {
-    entry.innerHTML = html;
-  } else {
-    entry.innerHTML = `<span class="timestamp">${ts}</span> ${html}`;
-  }
-  log.appendChild(entry);
-  log.scrollTop = log.scrollHeight;
-}
-
-function resetAgentStats() {
-  document.getElementById("agent-iteration").textContent = "0";
-  document.getElementById("agent-findings-count").textContent = "0";
-  document.getElementById("agent-critical-count").textContent = "0";
-  document.getElementById("agent-scanned-count").textContent = "0";
-  document.getElementById("agent-progress-fill").style.width = "0%";
-}
-
-function updateAgentStats() {
-  const log = document.getElementById("agent-log");
-  const findings = log.querySelectorAll(".agent-entry.finding").length;
-  const criticals = log.querySelectorAll(".agent-severity-critical").length;
-  const actions = log.querySelectorAll(".agent-entry.action").length;
-
-  document.getElementById("agent-findings-count").textContent = findings;
-  document.getElementById("agent-critical-count").textContent = criticals;
-  document.getElementById("agent-scanned-count").textContent = actions;
-}
-
-function renderAgentSummary(data) {
-  let html = `<div class="agent-entry summary">`;
-  html += `<strong>📊 Resumen Final</strong><br/>`;
-  html += `Proyecto: ${data.project || ""}<br/>`;
-  html += `Iteraciones: ${data.iterations || 0}<br/>`;
-  html += `Hallazgos totales: ${data.total_findings || 0}<br/>`;
-  html += `Críticos/Altos: <span class="agent-severity-critical">${data.critical_high || 0}</span><br/>`;
-  html += `Archivos escaneados: ${data.scanned_files || 0}<br/>`;
-
-  if (data.critical_findings && data.critical_findings.length > 0) {
-    html += `<br/><strong>Hallazgos Críticos:</strong><br/>`;
-    data.critical_findings.forEach(f => {
-      html += `• <span class="agent-severity-${f.severity}">[${f.severity.toUpperCase()}]</span> ${f.file}:${f.line} — ${f.title}<br/>`;
-    });
-  }
-  html += `</div>`;
-
-  const log = document.getElementById("agent-log");
-  log.insertAdjacentHTML("beforeend", html);
-  log.scrollTop = log.scrollHeight;
-}
-
-// ── Exploit Renderer ──────────────────────────────────────────────────
-function renderExploit(data) {
-  const log = document.getElementById("agent-log");
-  const div = document.createElement("div");
-  div.className = "agent-entry exploit";
-  div.style.cssText = "border:1px solid var(--border);border-radius:8px;padding:16px;margin:12px 0;background:var(--bg-surface);";
-
-  const title = data.title || "Exploit PoC";
-  const impacto = data.impacto || "No disponible";
-  const codigo = data.exploit_code || "";
-  const lenguaje = data.lenguaje || "text";
-  const resultado = data.resultado_esperado || "";
-  const mitigacion = data.mitigacion || "";
-  const facilidad = data.facilidad || "media";
-
-  let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-    <strong style="color:var(--red);font-size:14px;">💀 Exploit: ${title}</strong>
-    <span style="font-size:11px;background:var(--bg-hover);padding:2px 8px;border-radius:4px;">${facilidad}</span>
-  </div>`;
-
-  html += `<div style="margin-bottom:8px;font-size:13px;color:var(--text-secondary);">
-    <strong>Impacto:</strong> ${impacto}
-  </div>`;
-
-  if (codigo) {
-    html += `<details style="margin-bottom:8px;">
-      <summary style="cursor:pointer;font-size:13px;color:var(--accent);">🔧 Código de Explotación</summary>
-      <pre style="background:#0a0e14;padding:12px;border-radius:6px;margin-top:8px;overflow-x:auto;"><code class="lang-${lenguaje}">${escapeHtml(codigo)}</code></pre>
-    </details>`;
-  }
-
-  if (resultado) {
-    html += `<div style="margin-bottom:8px;font-size:13px;color:var(--text-secondary);">
-      <strong>Resultado esperado:</strong> ${resultado}
-    </div>`;
-  }
-
-  if (mitigacion) {
-    html += `<details>
-      <summary style="cursor:pointer;font-size:13px;color:var(--green);">🛡 Mitigación</summary>
-      <pre style="background:#0a0e14;padding:12px;border-radius:6px;margin-top:8px;overflow-x:auto;"><code>${escapeHtml(mitigacion)}</code></pre>
-    </details>`;
-  }
-
-  div.innerHTML = html;
-  log.appendChild(div);
-  log.scrollTop = log.scrollHeight;
 }
 
 // ── RENACER (v2) ─────────────────────────────────────────────────────
@@ -1218,19 +839,34 @@ async function startRenacer() {
 function handleRenacerEvent(evt, log) {
   const type = evt.type;
   const data = evt.data || {};
-  if (type === "heartbeat") return;
 
   let html = "";
   switch (type) {
+    case "heartbeat":
+      if (data.tool) {
+        showRunningTool(data.tool, data.target, data.params);
+        if (data.percent !== undefined) updateToolProgress(data.percent);
+      }
+      return;
+
     case "agent_log":
       html = `<div class="agent-entry log">${data.message || ""}</div>`;
       break;
     case "agent_tool_start":
+      showRunningTool(data.tool, data.target, data.params);
       const flags = data.params && data.params.flags ? ` (${data.params.flags})` : "";
       html = `<div class="agent-entry action">🔧 ${data.tool || ""} ${data.target || ""}${flags}</div>`;
       break;
     case "agent_tool_result":
+      hideRunningTool();
       html = `<div class="agent-entry action">✅ ${data.tool || ""}: ${data.summary || "ok"}</div>`;
+      break;
+    case "agent_tool_progress":
+      updateToolProgress(data.percent);
+      return;
+    case "agent_complete":
+      hideRunningTool();
+      html = `<div class="agent-entry complete">✅ Pipeline completado</div>`;
       break;
     case "agent_summary":
       html = `<div class="agent-entry complete">📊 ${data.message || "Resumen"}</div>`;

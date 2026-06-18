@@ -32,26 +32,6 @@ from skoll.scanner import ejecutar_escaneo_sast
 from skoll.utils import escanear_directorio, leer_archivo, mostrar_error_api_key, mostrar_error_general
 from skoll.verifier import preguntar_y_ejecutar_verificacion
 
-# ── Agent command (autonomous mode) ────────────────────────────────
-try:
-    from skoll_agent.agent import run_agent as _run_agent
-    from skoll_agent.config.agent_config import CONFIG as _AGENT_CONFIG
-
-    _AGENT_AVAILABLE = True
-except ImportError:
-    # Fallback: añadir la raíz del proyecto al path
-    import sys
-    _agent_root = os.path.dirname(os.path.abspath(__file__))
-    _project_root = os.path.dirname(_agent_root)
-    if _project_root not in sys.path:
-        sys.path.insert(0, _project_root)
-    try:
-        from skoll_agent.agent import run_agent as _run_agent
-        from skoll_agent.config.agent_config import CONFIG as _AGENT_CONFIG
-        _AGENT_AVAILABLE = True
-    except ImportError:
-        _AGENT_AVAILABLE = False
-
 app = typer.Typer(
     help="Skoll: Asistente CLI de ciberseguridad para auditorías de código inspirado en RAPTOR.",
     no_args_is_help=True
@@ -327,49 +307,6 @@ def web_comando(
         log_level="warning",
         access_log=False,
     )
-
-
-@app.command("agent")
-def agent_comando(
-    ruta: str = typer.Argument(
-        ".",
-        help="Ruta del proyecto a auditar de forma autónoma."
-    ),
-    provider: str = typer.Option(
-        DEFAULT_PROVIDER,
-        "--provider", "-p",
-        help=PROVIDER_HELP,
-    ),
-    model: str = typer.Option(
-        None,
-        "--model", "-m",
-        help=MODEL_HELP,
-    ),
-    sandbox: bool = typer.Option(
-        False,
-        "--sandbox",
-        help="Ejecutar escaneos dentro de un contenedor Docker aislado.",
-    ),
-):
-    if not _AGENT_AVAILABLE:
-        console.print(
-            "[bold red]❌ Módulo Skoll Agent no disponible.[/bold red]\n"
-            "Asegúrate de que el paquete 'skoll_agent' está en el PYTHONPATH."
-        )
-        raise typer.Exit(code=1)
-
-    if not os.path.exists(ruta):
-        mostrar_error_general(f"La ruta '{ruta}' no existe en el sistema.")
-        raise typer.Exit(code=1)
-
-    console.print(f"[bold magenta][*] Lanzando Skoll Agent autónomo en: '{ruta}'...[/bold magenta]")
-    console.print(f"[dim]Proveedor: {provider_label(provider)} | Sandbox: {'✅' if sandbox else '❌'}[/dim]")
-
-    if sandbox:
-        from skoll_agent.agent import run_sandboxed_agent
-        run_sandboxed_agent(ruta, provider=provider)
-    else:
-        _run_agent(ruta, provider=provider, model=model)
 
 
 if __name__ == "__main__":

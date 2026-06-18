@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Skoll — Panel de Seguridad</title>
+  <title>Skoll — Ragnarök</title>
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet" />
@@ -19,7 +19,7 @@
         <img src="/static/logo.svg" alt="Skoll" class="logo-svg" />
         <div class="logo-text">
           <h1>Skoll</h1>
-          <span class="logo-sub">Viking Security</span>
+          <span class="logo-sub">Auditoría Nórdica</span>
         </div>
       </div>
     </div>
@@ -28,22 +28,19 @@
 
     <nav class="sidebar-nav">
       <button class="nav-item active" id="nav-analyze" onclick="switchTab('analyze')">
-        <span class="nav-icon">🔍</span><span>Análisis de Código</span>
+        <span class="nav-icon">📖</span><span>Mímir</span>
       </button>
       <button class="nav-item" id="nav-scan" onclick="switchTab('scan')">
-        <span class="nav-icon">⚡</span><span>Escaneo SAST</span>
+        <span class="nav-icon">👁️</span><span>Heimdall</span>
       </button>
       <button class="nav-item" id="nav-web" onclick="switchTab('web')">
-        <span class="nav-icon">🌐</span><span>Auditoría Web (URL)</span>
+        <span class="nav-icon">🦅</span><span>Huginn</span>
       </button>
       <button class="nav-item" id="nav-chat" onclick="switchTab('chat')">
-        <span class="nav-icon">💬</span><span>Chat de Seguridad</span>
-      </button>
-      <button class="nav-item" id="nav-agent" onclick="switchTab('agent')">
-        <span class="nav-icon">🤖</span><span>Agente Autónomo</span>
+        <span class="nav-icon">💎</span><span>Runas</span>
       </button>
       <button class="nav-item" id="nav-renacer" onclick="switchTab('renacer')">
-        <span class="nav-icon">🛡️</span><span>Renacer</span>
+        <span class="nav-icon">🔥</span><span>Ragnarök</span>
       </button>
     </nav>
 
@@ -68,13 +65,14 @@
 
   <main class="main-content">
     <header class="topbar">
-      <div class="topbar-title" id="topbar-title">Análisis de Código</div>
+      <div class="topbar-title" id="topbar-title">Mímir</div>
     </header>
 
     <section class="tab-panel active" id="tab-analyze">
       <div class="panel-body">
         <div class="card upload-card" id="drop-zone">
-          <h2>Sube tu archivo</h2>
+          <h2>Mímir — Análisis de Código</h2>
+          <p class="card-desc">Sube un archivo para analizar su estructura, detectar vulnerabilidades y obtener recomendaciones de seguridad con IA.</p>
           <input type="file" id="file-input" hidden />
           <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">Seleccionar</button>
         </div>
@@ -91,7 +89,8 @@
     <section class="tab-panel" id="tab-scan">
       <div class="panel-body">
         <div class="card">
-          <h2 class="card-title">⚡ Escaneo SAST</h2>
+          <h2 class="card-title">⚡ Heimdall</h2>
+          <p class="card-desc">Escaneo SAST estático con Bandit o Semgrep para encontrar vulnerabilidades en el código fuente del proyecto.</p>
           <div class="tool-selector">
             <span class="tool-label">Herramienta:</span>
             <div class="tool-options">
@@ -121,7 +120,8 @@
     <section class="tab-panel" id="tab-web">
       <div class="panel-body">
         <div class="card">
-          <h2 class="card-title">🌐 Auditoría de URL</h2>
+          <h2 class="card-title">🌐 Huginn</h2>
+          <p class="card-desc">Auditoría de seguridad web: analiza URLs en busca de vulnerabilidades, encabezados, tecnologías y configuraciones.</p>
           <div class="input-group">
             <input type="text" id="url-input" class="text-input" placeholder="https://ejemplo.com" />
             <button class="btn btn-primary" id="analyze-url-btn" onclick="analyzeURL()">Auditar Web</button>
@@ -144,56 +144,17 @@
         </div>
         <div class="chat-messages" id="chat-messages"></div>
         <div class="chat-input-area">
-          <textarea id="chat-input" placeholder="Pregunta de seguridad..." rows="1" disabled></textarea>
+          <textarea id="chat-input" placeholder="Consulta las Runas..." rows="1" disabled></textarea>
           <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()" disabled>Enviar</button>
         </div>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="tab-agent">
-      <div class="panel-body">
-        <div class="card">
-          <h2 class="card-title">🤖 Agente de Seguridad Autónomo</h2>
-          <p class="card-desc">El agente indexa tu proyecto, usa herramientas SAST y de pentest (nmap, nikto, gobuster, etc.), interpreta resultados y genera reportes — todo sin intervención manual.</p>
-
-          <div class="session-bar" id="session-bar">
-            <label for="session-select">Sesiones guardadas:</label>
-            <select id="session-select" class="text-input" style="flex:1;width:auto;">
-              <option value="">— Nueva sesión —</option>
-            </select>
-            <button class="btn btn-sm btn-secondary" id="session-load-btn" onclick="loadSession()" disabled>Cargar</button>
-            <button class="btn btn-sm btn-secondary" id="session-del-btn" onclick="deleteSession()" disabled>Eliminar</button>
-            <button class="btn btn-sm btn-secondary" onclick="refreshSessionList()">⟳</button>
-          </div>
-
-          <div class="input-group">
-            <input type="text" id="agent-path-input" class="text-input" placeholder="/ruta/al/proyecto" />
-            <button class="btn btn-primary" id="agent-start-btn" onclick="startAgent()">🚀 Iniciar Agente</button>
-          </div>
-          <div id="agent-controls" class="hidden">
-            <div class="agent-progress-bar">
-              <div class="agent-progress-fill" id="agent-progress-fill"></div>
-            </div>
-            <div class="agent-stats" id="agent-stats">
-              <span class="agent-stat"><strong>Iteración:</strong> <span id="agent-iteration">0</span></span>
-              <span class="agent-stat"><strong>Hallazgos:</strong> <span id="agent-findings-count">0</span></span>
-              <span class="agent-stat"><strong>Críticos:</strong> <span id="agent-critical-count">0</span></span>
-              <span class="agent-stat"><strong>Escaneados:</strong> <span id="agent-scanned-count">0</span></span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="output-wrapper" id="agent-output-wrapper">
-        <div class="agent-log" id="agent-log"></div>
-        <div class="agent-running-tool hidden" id="agent-running-tool"></div>
       </div>
     </section>
 
     <section class="tab-panel" id="tab-renacer">
       <div class="panel-body">
         <div class="card">
-          <h2 class="card-title">🛡️ Renacer — Pipeline Modular</h2>
-          <p class="card-desc">Nueva arquitectura: tiers deterministas + engines como plugins + LLM solo al final.</p>
+          <h2 class="card-title">🛡️ Ragnarök</h2>
+          <p class="card-desc">Pipeline de escaneo modular multicapa con 8 fases deterministas: RECON → ENUM → VALIDATE → ANALYZE → EXPLOIT → CHAIN → REPORT → COMPLETE.</p>
           <div class="input-group">
             <input type="text" id="renacer-target" class="text-input" placeholder="IP o hostname — ej: 10.0.0.1 o ejemplo.com" />
             <button class="btn btn-primary" id="renacer-btn" onclick="startRenacer()">▶ Escanear</button>
@@ -203,6 +164,7 @@
       </div>
       <div class="output-wrapper" id="renacer-output-wrapper">
         <div class="agent-log" id="renacer-log"></div>
+        <div class="agent-running-tool hidden" id="renacer-running-tool"></div>
       </div>
     </section>
 

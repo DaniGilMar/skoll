@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import time
 import traceback
 from datetime import datetime, timezone
@@ -20,6 +21,8 @@ from skoll_agent.memory.state import AgentState, ActionLog, Finding, Severity, F
 from skoll_agent.memory.sage import (
     format_sage_context, store_scan_result, recall_context_for_scan,
 )
+from skoll_agent.skills.skill_registry import get_registry as get_skill_registry
+from skoll_agent.knowledge.knowledge_base import get_knowledge_base
 from skoll_agent.sandbox.human_in_loop import HumanInLoop
 from skoll_agent.pipeline.models import (
     PhaseId, PhaseStatus, PhaseResult, PipelineState,
@@ -183,6 +186,25 @@ class PipelineOrchestrator:
         )
 
         agent_results: dict[str, dict[str, Any]] = {}
+        skills_text = ""
+        try:
+            reg = get_skill_registry()
+            extra_kw = f"{ports_str} {web_str} {findings_str}"
+            skills_text = reg.skill_context_for_phase("ANALYZE", extra_keywords=extra_kw, max_chars=3000)
+        except Exception:
+            pass
+        kb_context = ""
+        try:
+            kb = get_knowledge_base()
+            search_terms = [p.strip() for p in (web_str + " " + cve_str).split() if len(p.strip()) > 3][:5]
+            for term in search_terms:
+                results = kb.search(term, limit=2)
+                if results:
+                    kb_context += f"\n### KB: {term}\n"
+                    for r in results:
+                        kb_context += f"- {r['title']}: {r['content'][:200]}\n"
+        except Exception:
+            pass
         base_context = f"""
 ### Puertos y Servicios
 {ports_str or '(ninguno)'}
@@ -198,6 +220,10 @@ class PipelineOrchestrator:
 
 {funnel_str}
 """
+        if skills_text:
+            base_context += f"\n{skills_text}\n"
+        if kb_context:
+            base_context += f"\n### Knowledge Base Search Results\n{kb_context}\n"
 
         # 11 agentes especializados con modelo fijo — cerebro 70b reservado
         agents = [
@@ -488,10 +514,10 @@ If RETRY, include a brief recovery command/approach.
             sage_ctx = recall_context_for_scan(self.target)
             if sage_ctx:
                 sage_text = format_sage_context(self.target)
-                self._emit_log(f"\ud83d\udcda SAGE: {len(sage_ctx)} sesiones anteriores encontradas")
+                self._emit_log(f"\U0001F4DA SAGE: {len(sage_ctx)} sesiones anteriores encontradas")
                 self._emit("agent_log", {"message": sage_text[:500]})
             else:
-                self._emit_log("\ud83d\udcda SAGE: primera vez escaneando este target")
+                self._emit_log("\U0001F4DA SAGE: primera vez escaneando este target")
 
         if self.is_network:
             self.context = ProjectContext(
@@ -874,10 +900,10 @@ If RETRY, include a brief recovery command/approach.
                     "action": "analyze", "phase": "analyze",
                 })
                 phase.metadata["llm_analysis"] = analysis
-                self._emit_log(f"\ud83e\udde0 Vector de ataque: {attack_vector}")
-                self._emit_log(f"\ud83d\udfe2 Riesgo: {risk_rating} ({len(agents)} agentes)")
+                self._emit_log(f"\U0001F9E0 Vector de ataque: {attack_vector}")
+                self._emit_log(f"\U0001F7E2 Riesgo: {risk_rating} ({len(agents)} agentes)")
                 if confirmed_cves:
-                    self._emit_log(f"\ud83d\udd0d CVEs confirmados: {', '.join(confirmed_cves)}")
+                    self._emit_log(f"\U0001F50D CVEs confirmados: {', '.join(confirmed_cves)}")
 
                 phase.metadata["analysis_summary"] = readable
             except Exception as e:
@@ -885,56 +911,128 @@ If RETRY, include a brief recovery command/approach.
 
         phase.complete("Análisis completado")
 
+    def _extract_discovered_paths(self, port_url: str) -> list[str]:
+        """Extrae paths descubiertos por ffuf/gobuster/nikto en ENUM."""
+        enum = self.pipeline.get_phase(PhaseId.ENUM)
+        paths: list[str] = []
+        import re
+        for tool_key, raw in enum.raw_outputs.items():
+            if port_url in raw or self.target in raw:
+                if tool_key.startswith(("gobuster", "ffuf")):
+                    for line in raw.split("\n"):
+                        parts = line.strip().split()
+                        for part in parts:
+                            if part.startswith("/") and len(part) > 1:
+                                ext = part.rsplit(".", 1)[-1] if "." in part else ""
+                                if ext in ("php", "asp", "aspx", "jsp", "py", "pl", "html", "htm", ""):
+                                    paths.append(part if part != "/" else "")
+                if tool_key.startswith("nikto"):
+                    for m in re.finditer(r'/(?:[\w.-]+/)*[\w.-]+\.(?:php|asp|aspx|jsp|py|pl)', raw):
+                        p = m.group()
+                        if p not in paths:
+                            paths.append(p)
+        seen = set()
+        unique = []
+        for p in paths:
+            if p not in seen:
+                seen.add(p)
+                unique.append(p)
+        return unique[:20]
+
     def _phase_exploit(self) -> None:
         phase = self.pipeline.get_phase(PhaseId.EXPLOIT)
         self._emit_log("Fase 4: EXPLOIT — Explotación con recolección de evidencia")
 
         recon = self.pipeline.get_phase(PhaseId.RECON)
+        enum = self.pipeline.get_phase(PhaseId.ENUM)
         previous_findings = list(self.pipeline.all_findings)
+        collected_creds: list[dict[str, str]] = []
 
+        # ── 1. WEB: sqlmap + nuclei contra cada URL y paths descubiertos ──
         for port_info in recon.ports:
             service = port_info.service.lower()
+            if service not in ("http", "https"):
+                continue
+            proto = "https" if port_info.port in (443, 8443) else "http"
+            base_url = f"{proto}://{self.target}:{port_info.port}"
 
-            # SQLmap on web — only if dynamic pages found
-            if service in ("http", "https"):
-                proto = "https" if port_info.port in (443, 8443) else "http"
-                url = f"{proto}://{self.target}:{port_info.port}"
-                # Check for dynamic extensions from gobuster/whatweb findings
-                enum_phase = self.pipeline.get_phase(PhaseId.ENUM)
-                has_dynamic = False
-                for tool_key, raw_out in enum_phase.raw_outputs.items():
-                    if tool_key.startswith("gobuster"):
-                        for ext in (".php", ".asp", ".aspx", ".jsp", ".cfm", ".pl", ".py"):
-                            if ext in raw_out.lower():
-                                has_dynamic = True
-                                break
-                    if tool_key.startswith("whatweb"):
-                        if any(cms in raw_out.lower() for cms in ("cms", "wordpress", "joomla", "drupal", "php", "asp")):
-                            has_dynamic = True
-                            break
-                if has_dynamic:
-                    self._run_tool("sqlmap", url, phase, extra={"batch": True})
-                else:
-                    self._emit_log(f"  sqlmap saltado: sin páginas dinámicas detectadas en {url}")
+            # sqlmap siempre en URL base
+            self._emit_log(f"  sqlmap → {base_url}")
+            self._run_tool("sqlmap", base_url, phase, extra={"batch": True})
 
-            # Hydra on auth services (solo si el puerto está accesible)
-            if service in ("ssh", "ftp", "telnet", "mysql", "postgresql",
-                           "imap", "imaps", "pop3", "pop3s", "smtp", "smtps"):
-                if port_info.state == "filtered":
-                    self._emit_log(f"  hydra saltado: {service}://{self.target}:{port_info.port} está filtrado por firewall")
-                    continue
-                self._emit_log(f"  Probando hydra en {service}://{self.target}:{port_info.port}")
-                self._run_tool("hydra", self.target, phase, extra={
-                    "service": service,
-                    "port": port_info.port,
-                })
+            # Paths descubiertos por fuzzing
+            discovered = self._extract_discovered_paths(base_url)
+            if discovered:
+                self._emit_log(f"  {len(discovered)} paths descubiertos, lanzando sqlmap contra cada uno")
 
-        # Exploit Dispatcher: ejecuta exploits para CVEs confirmados por ≥2 agentes
-        self._emit_log("  Exploit Dispatcher: buscando CVEs confirmados para explotación automática...")
+                # Login pages prioritarias
+                login_paths = [p for p in discovered if "login" in p.lower() or "admin" in p.lower()
+                               or "signin" in p.lower() or "auth" in p.lower()]
+                for lp in login_paths[:3]:
+                    login_url = f"{base_url}{lp}"
+                    self._emit_log(f"  sqlmap → {login_url} (login)")
+                    self._run_tool("sqlmap", login_url, phase, extra={"batch": True})
+
+                # Paths dinámicos (.php, .asp, etc)
+                dynamic = [p for p in discovered if any(p.endswith(f".{e}") for e in ("php", "asp", "aspx", "jsp", "py", "pl"))]
+                for dp in dynamic[:10]:
+                    dyn_url = f"{base_url}{dp}"
+                    self._emit_log(f"  sqlmap → {dyn_url}")
+                    self._run_tool("sqlmap", dyn_url, phase, extra={"batch": True})
+
+                # nuclei contra paths descubiertos
+                for dp in (login_paths + dynamic)[:5]:
+                    target_url = f"{base_url}{dp}"
+                    self._emit_log(f"  nuclei → {target_url}")
+                    self._run_tool("nuclei", target_url, phase, extra={"batch": True})
+
+        # ── 2. AUTH SERVICES: hydra + default creds ──
+        for port_info in recon.ports:
+            service = port_info.service.lower()
+            if service not in ("ssh", "ftp", "telnet", "mysql", "postgresql",
+                               "imap", "imaps", "pop3", "pop3s", "smtp", "smtps",
+                               "redis", "mongodb"):
+                continue
+            if port_info.state == "filtered":
+                self._emit_log(f"  hydra saltado: {service}://{self.target}:{port_info.port} filtrado")
+                continue
+            self._emit_log(f"  hydra → {service}://{self.target}:{port_info.port}")
+            result = self._run_tool("hydra", self.target, phase, extra={
+                "service": service,
+                "port": port_info.port,
+            })
+            if result:
+                for f in result:
+                    if f.get("username") and f.get("password"):
+                        collected_creds.append({
+                            "service": service,
+                            "port": str(port_info.port),
+                            "username": f["username"],
+                            "password": f["password"],
+                            "target": self.target,
+                        })
+
+        # ── 3. CROSS-SERVICE: creds descubiertas → probar en otros servicios ──
+        if collected_creds:
+            self._emit_log(f"  {len(collected_creds)} credenciales descubiertas, probando en otros servicios...")
+            for cred in collected_creds:
+                for port_info in recon.ports:
+                    svc = port_info.service.lower()
+                    if svc in ("ssh", "ftp", "postgresql", "mysql", "redis") and f"{svc}:{port_info.port}" != f"{cred['service']}:{cred['port']}":
+                        self._emit_log(f"  reutilizando {cred['username']}:{cred['password']} → {svc}://{self.target}:{port_info.port}")
+                        self._run_tool("hydra", self.target, phase, extra={
+                            "service": svc,
+                            "port": port_info.port,
+                            "username": cred["username"],
+                            "password": cred["password"],
+                        })
+
+        # ── 4. EXPLOIT DISPATCHER + FALLBACK ──
         analyze_phase = self.pipeline.get_phase(PhaseId.ANALYZE)
         analysis = analyze_phase.metadata.get("llm_analysis", {})
         confirmed_cves = analysis.get("confirmed_cves", [])
         if confirmed_cves:
+            self._emit_log(f"  Exploit Dispatcher: {len(confirmed_cves)} CVEs confirmados")
             from skoll_agent.engines.exploit_dispatcher import ExploitDispatcher
             dispatcher = ExploitDispatcher()
             ports_dict = [
@@ -948,64 +1046,72 @@ If RETRY, include a brief recovery command/approach.
                 agent_results=analysis.get("agent_results", {}),
             )
             if tasks:
-                self._emit_log(f"  → {len(tasks)} tareas de explotación generadas para {len(confirmed_cves)} CVEs")
+                self._emit_log(f"  → {len(tasks)} tareas de exploit vía dispatcher")
             for task in tasks:
-                tool = task.get("tool", "")
-                params = task.get("params", {})
-                desc = task.get("description", "(sin descripción)")
-                cve = task.get("cve", "")
-                self._emit_log(f"  → Ejecutando [{tool}] {desc}")
-                self._run_tool(tool, self.target, phase, extra=params)
-            if not tasks:
-                self._emit_log(f"  → Sin tareas de explotación para los {len(confirmed_cves)} CVEs confirmados")
-        else:
-            self._emit_log("  No hay CVEs confirmados para explotación automática")
+                self._emit_log(f"  → [{task.get('tool')}] {task.get('description', '')}")
+                self._run_tool(task.get("tool", ""), self.target, phase, extra=task.get("params", {}))
 
-        # Use LLM to generate POCs with evidence from findings
+            # Fallback: searchsploit + nuclei para CVEs sin módulo
+            executed_cves = {t.get("cve", "") for t in tasks}
+            unmatched = [c for c in confirmed_cves if c not in executed_cves]
+            if unmatched:
+                self._emit_log(f"  → {len(unmatched)} CVEs sin módulo — fallback searchsploit/nuclei")
+                for cve in unmatched[:5]:
+                    try:
+                        ss = subprocess.run(
+                            ["searchsploit", "--cve", cve, "-j"],
+                            capture_output=True, text=True, timeout=30
+                        )
+                        if ss.returncode == 0 and ss.stdout.strip():
+                            ss_data = json.loads(ss.stdout)
+                            if ss_data.get("RESULTS_EXPLOIT"):
+                                self._emit_log(f"  → searchsploit: {len(ss_data['RESULTS_EXPLOIT'])} exploits para {cve}")
+                    except Exception:
+                        pass
+                    # nuclei template para el CVE
+                    self._run_tool("nuclei", self.target, phase, extra={"cve": cve})
+
+        # ── 5. LLM: generar comandos de explotación reales ──
         if self.llm and self.pipeline.all_findings:
-            exploit_guidance = _load_tier("exploit-guidance.md")
-            evidence_guide = _load_tier("evidence-guide.md")
+            exploit_guidance = _load_tier("exploit-guidance.md") or ""
             new_findings = [f for f in self.pipeline.all_findings
                            if f not in previous_findings] if previous_findings else self.pipeline.all_findings
             if new_findings:
-                findings_json = json.dumps(new_findings[-10:], indent=2, default=str)
+                web_info = self.pipeline.all_web()
+                web_summary = "\n".join(f"{w.url} [{w.tech} {w.version}]".strip() for w in web_info[:8]) or "Ninguno"
+                findings_json = json.dumps(new_findings[-15:], indent=2, default=str)
                 poc_prompt = f"""{exploit_guidance}
 
-{evidence_guide}
-
-## Constraint Verification
-
-Before exploiting, verify these constraints for each finding:
-
-### Findings to Exploit
-{findings_json}
+Eres un pentester ofensivo. Basado en los hallazgos reales, genera comandos de explotación concretos.
 
 ### Target: {self.target}
+### Servicios web: 
+{web_summary}
+### Credenciales descubiertas: {json.dumps(collected_creds, indent=2) if collected_creds else "Ninguna"}
+### CVEs confirmados: {json.dumps(confirmed_cves) if confirmed_cves else "Ninguno"}
+### Hallazgos:
+{findings_json}
 
-## Instructions
-
-Follow RAPTOR methodology: **Verify constraints first, then exploit.**
-
-For each finding, determine:
-1. **Blocked techniques** — what WON'T work (WAF, rate limiting, lockout, patched vulns)
-2. **Viable techniques** — what WILL work (specific payloads, fallback approaches)
-3. **Exploit command** — exact tool + arguments to run
-4. **Evidence** — what output/screenshot/payload to capture for client report
-5. **CVSS v3.1** — vector for each finding
-6. **Impact** — what attacker achieves
-7. **Remediation** — how client fixes it
-
-Output JSON array:
-[{{"finding_id": "...", "title": "...", "severity": "...", "blocked_techniques": ["..."], "viable_techniques": ["..."], "cvss_vector": "...", "command": "...", "evidence": "...", "impact": "...", "remediation": "..."}}]
+Responde SOLO JSON array con comandos de explotación ejecutables:
+[{{"tool": "sqlmap|hydra|nuclei|msfconsole|nmap|custom", "url": "...", "params": {{}}, "reason": "...", "expected_output": "..."}}]
+Si no hay nada explotable, responde [].
 """
                 try:
                     poc_response, model = self._llm_analyze(poc_prompt)
                     pocs = self._parse_json(poc_response) or []
                     if isinstance(pocs, list):
-                        phase.metadata["pocs"] = pocs
-                        self._emit_log(f"POCs generados: {len(pocs)}")
+                        phase.metadata["llm_exploit_commands"] = pocs
+                        self._emit_log(f"  LLM generó {len(pocs)} comandos de explotación ({model})")
+                        for poc in pocs[:5]:
+                            tool = poc.get("tool", "")
+                            url = poc.get("url", self.target)
+                            params = poc.get("params", {})
+                            reason = poc.get("reason", "")
+                            self._emit_log(f"  → [{tool}] {url}: {reason[:100]}")
+                            if tool in ("sqlmap", "nuclei", "hydra", "nmap"):
+                                self._run_tool(tool, url, phase, extra=params)
                 except Exception as e:
-                    self._emit_log(f"\u26a0\ufe0f Error generando POCs: {e}")
+                    self._emit_log(f"\u26a0\ufe0f Error en LLM exploitation: {e}")
 
         phase.complete(f"Explotación completada — {len(self.pipeline.all_findings)} hallazgos totales")
 
@@ -1014,51 +1120,97 @@ Output JSON array:
 
         self._emit_log("Fase 5: CHAIN — Análisis cruzado de hallazgos (RAPTOR-style)")
 
-        # Multi-agente para análisis cruzado
         if self.llm and self.pipeline.all_findings:
-            pentest_methodology = _load_tier("pentest-methodology.md")
             findings_summary = json.dumps(self.pipeline.all_findings[-15:], indent=2, default=str)
             ports_summary = "\n".join(
                 f"{p.port}/{p.protocol} {p.service} {p.product} {p.version}".strip()
                 for p in self.pipeline.open_ports()
             )
+            chain_prompt = f"""Eres un pentester senior analizando resultados de escaneo. Cruza los hallazgos y responde SOLO JSON:
 
-            chain_context = {
-                "ports_str": ports_summary,
-                "cve_str": "",
-                "web_str": "",
-                "findings_str": f"{findings_summary}\n\n{pentest_methodology}",
-                "funnel_str": "",
-            }
-            chain_analysis: dict[str, Any] = {}
+Hallazgos:
+{findings_summary}
+
+Puertos:
+{ports_summary}
+
+{{"chains": [{{"name": "...", "attack_flow": ["paso1", "paso2"], "risk": "HIGH/MEDIUM/LOW", "cves": []}}], "summary": "...", "remediation_priority": ["..."], "risk_rating": "HIGH/MEDIUM/LOW"}}"""
             try:
-                chain_analysis = self._multi_agent_analyze(chain_context)
-            except Exception as e:
-                self._emit_log(f"\u26a0\ufe0f Error en análisis cruzado multi-agente: {e}")
-            try:
-                if chain_analysis:
-                    chain_analysis = self._judge_findings(chain_analysis)
-            except Exception as e:
-                self._emit_log(f"\u26a0\ufe0f Error en juez Gemini (chain): {e}")
-            try:
-                if chain_analysis:
-                    phase.metadata["chain_analysis"] = chain_analysis
-                    confirmed_cves = chain_analysis.get("confirmed_cves", [])
-                    risk_rating = chain_analysis.get("risk_rating", "N/A")
-                    self._emit_log(f"Análisis multi-agente completado: {len(confirmed_cves)} CVEs, riesgo {risk_rating}")
-                    self._emit_log(f"Riesgo general: {risk_rating}")
+                resp, model = self._llm_analyze(chain_prompt)
+                parsed = self._parse_json(resp) or {}
+                if parsed:
+                    phase.metadata["chain_analysis"] = parsed
+                    risk = parsed.get("risk_rating", "N/A")
+                    chains = parsed.get("chains", [])
+                    n_chains = len(chains)
+                    self._emit_log(f"  Chain: {n_chains} cadenas, riesgo {risk} (modelo: {model})")
             except Exception as e:
                 self._emit_log(f"\u26a0\ufe0f Error en análisis cruzado: {e}")
 
         n_chains = len(phase.metadata.get("chain_analysis", {}).get("chains", [])) if phase.metadata.get("chain_analysis") else 0
         phase.complete(f"Análisis cruzado: {n_chains} cadenas de ataque, {len(self.pipeline.all_findings)} hallazgos totales")
 
+    def _msf_search_cve(self, cve_id: str) -> bool:
+        """Verifica si Metasploit tiene un módulo para el CVE."""
+        try:
+            result = subprocess.run(
+                ["msfconsole", "-q", "-c", f"search name:{cve_id}; exit"],
+                capture_output=True, text=True, timeout=60,
+            )
+            output = result.stdout + result.stderr
+            return "exploit/" in output or "auxiliary/" in output or "payload/" in output
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+        try:
+            ss = subprocess.run(
+                ["searchsploit", "--cve", cve_id, "--json"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if ss.returncode == 0:
+                data = json.loads(ss.stdout)
+                entries = data.get("RESULTS_EXPLOIT", data.get("RESULTS", []))
+                return len(entries) > 0
+        except Exception:
+            pass
+        return False
+
     def _phase_report(self) -> None:
         phase = self.pipeline.get_phase(PhaseId.REPORT)
         self._emit_log("Fase 6: REPORT — Generando reporte profesional + evidencia")
 
+        # Filtrar solo CVEs con módulo en Metasploit
+        analyze_phase = self.pipeline.get_phase(PhaseId.ANALYZE)
+        analysis = analyze_phase.metadata.get("llm_analysis", {})
+        all_confirmed_cves = analysis.get("confirmed_cves", [])
+        exploitable_cves: list[str] = []
+        if all_confirmed_cves:
+            self._emit_log(f"  Verificando {len(all_confirmed_cves)} CVEs contra Metasploit...")
+            for cve in all_confirmed_cves:
+                if self._msf_search_cve(cve):
+                    exploitable_cves.append(cve)
+                    self._emit_log(f"  ✅ {cve} → tiene módulo en Metasploit")
+                else:
+                    self._emit_log(f"  ❌ {cve} → sin módulo (excluido del reporte)")
+
+        # Filtrar hallazgos: solo los que corresponden a CVEs explotables
+        if exploitable_cves:
+            filtered = []
+            for f in self.pipeline.all_findings:
+                title = f.get("title", "")
+                desc = f.get("description", "")
+                combined = title + " " + desc
+                if any(cve in combined for cve in exploitable_cves):
+                    filtered.append(f)
+            if filtered:
+                self._emit_log(f"  {len(filtered)} hallazgos corresponden a CVEs explotables (de {len(self.pipeline.all_findings)} totales)")
+                report_findings = filtered
+            else:
+                report_findings = self.pipeline.all_findings
+        else:
+            report_findings = []
+
         by_severity: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
-        for f in self.pipeline.all_findings:
+        for f in report_findings:
             sev = f.get("severity", "info")
             by_severity[sev] = by_severity.get(sev, 0) + 1
 
@@ -1074,7 +1226,7 @@ Output JSON array:
 
         # Hallazgos críticos/altos
         critical_high = [
-            f for f in self.pipeline.all_findings
+            f for f in report_findings
             if f.get("severity", "info").lower() in ("critical", "high")
         ]
 
@@ -1082,13 +1234,14 @@ Output JSON array:
             "# Skoll Security Assessment — Informe de Auditoría",
             f"**Cliente:** {self.target}",
             f"**Fecha:** {datetime.now(timezone.utc).isoformat()}",
-            f"**Hallazgos totales:** {len(self.pipeline.all_findings)}",
+            f"**Hallazgos con exploit confirmado:** {len(report_findings)} (de {len(self.pipeline.all_findings)} totales)",
             f"**Riesgo general:** {overall_risk}",
             "",
             "---",
             "## Resumen Ejecutivo",
             "",
-            f"Se identificaron **{len(self.pipeline.all_findings)}** hallazgos de seguridad en el target {self.target}.",
+            f"Se identificaron **{len(self.pipeline.all_findings)}** hallazgos de seguridad en el target {self.target}. "
+            f"De ellos, **{len(report_findings)}** tienen un módulo de explotación confirmado en Metasploit y se detallan en este informe.",
             "",
             "| Severidad | Cantidad |",
             "|-----------|----------|",
@@ -1160,7 +1313,7 @@ Output JSON array:
             "## Hallazgos Técnicos Detallados",
         ])
 
-        for idx, f in enumerate(self.pipeline.all_findings, 1):
+        for idx, f in enumerate(report_findings, 1):
             report_lines.extend([
                 "",
                 f"### Finding #{idx}: {f.get('title', '?')}",
@@ -1186,10 +1339,12 @@ Output JSON array:
         report = "\n".join(report_lines)
         self._emit("agent_summary", {
             "project": self.target,
-            "total_findings": len(self.pipeline.all_findings),
+            "total_findings": len(report_findings),
+            "filtered_total": len(self.pipeline.all_findings),
             "critical_high": by_severity["critical"] + by_severity["high"],
             "iterations": self.pipeline.iteration,
             "overall_risk": overall_risk,
+            "exploitable_cves": exploitable_cves,
         })
 
         # PDF report generation
@@ -1197,7 +1352,7 @@ Output JSON array:
             from skoll_agent.report.report_generator import ReportGenerator
             gen = ReportGenerator(self.pipeline, self.target, self.session_id)
             pdf_path = gen.generate_pdf()
-            self._emit_log(f"\ud83d\udcc4 Reporte PDF: {pdf_path}")
+            self._emit_log(f"\U0001F4C4 Reporte PDF: {pdf_path}")
             phase.metadata["pdf_path"] = pdf_path
         except ImportError:
             self._emit_log("  ReportGenerator no disponible, reporte en markdown")
@@ -1217,7 +1372,7 @@ Output JSON array:
                 )
                 with open(custody_path, "w") as f:
                     f.write(md)
-                self._emit_log(f"\ud83d\udcdd Cadena de custodia: {custody_path}")
+                self._emit_log(f"\U0001F4DD Cadena de custodia: {custody_path}")
                 phase.metadata["custody_path"] = custody_path
         except Exception as e:
             self._emit_log(f"  \u26a0\ufe0f Custodia fall\u00f3: {e}")
@@ -1514,6 +1669,7 @@ IMPORTANTE:
             next_steps = parsed.get("next_steps", [])
             if next_steps:
                 self._emit_log(f"  Feedback loop: {len(next_steps)} paso(s) adicional(es)")
+                from skoll_agent.engines.registry import get_engine
                 for step in next_steps:
                     tool = step.get("tool", "")
                     tgt = self.target
@@ -1523,6 +1679,12 @@ IMPORTANTE:
                     if tool in _already_run:
                         self._emit_log(f"    (saltado: {tool} ya ejecutado)")
                         continue
+                    # Validar que el engine existe
+                    try:
+                        get_engine(tool)
+                    except Exception:
+                        self._emit_log(f"    (saltado: {tool} — engine no disponible)")
+                        continue
                     step_target = step.get("target", "")
                     if tool in _IP_TOOLS:
                         ip_match = _re.search(r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b", step_target)
@@ -1531,7 +1693,7 @@ IMPORTANTE:
                     self._emit_log(f"    -> {tool} en {tgt}: {reason}")
                     self._run_tool(tool, tgt, phase, extra=params)
             if parsed.get("critical_hit"):
-                self._emit_log(f"  \ud83d\udea8 Feedback: hallazgo cr\u00edtico en {tool_name}")
+                self._emit_log(f"  \U0001F6A8 Feedback: hallazgo cr\u00edtico en {tool_name}")
                 phase.metadata["critical_hit"] = True
         except Exception as e:
             self._emit_log(f"  \u26a0\ufe0f Feedback loop error: {e}")

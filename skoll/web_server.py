@@ -1,9 +1,6 @@
 import asyncio
 import json
 import os
-import queue
-import re
-import threading
 import uuid
 from pathlib import Path
 
@@ -32,24 +29,6 @@ from skoll.config import (
 from skoll.scanner import ejecutar_escaneo_sast
 from skoll.utils import escanear_directorio, leer_archivo
 
-try:
-    from skoll_agent.brain.reasoning_loop import ReasoningLoop
-    from skoll_agent.config.agent_config import CONFIG as _AGENT_CONFIG
-    from skoll_agent.memory.session_manager import SessionManager
-    _AGENT_MODULE_OK = True
-except ImportError:
-    import sys
-    _skoll_root = Path(__file__).resolve().parent.parent
-    if str(_skoll_root) not in sys.path:
-        sys.path.insert(0, str(_skoll_root))
-    try:
-        from skoll_agent.brain.reasoning_loop import ReasoningLoop
-        from skoll_agent.config.agent_config import CONFIG as _AGENT_CONFIG
-        from skoll_agent.memory.session_manager import SessionManager
-        _AGENT_MODULE_OK = True
-    except ImportError:
-        _AGENT_MODULE_OK = False
-
 app = FastAPI(title="Skoll Web")
 
 from skoll.web_v2 import register_v2_routes
@@ -69,7 +48,6 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 chat_sessions: dict[str, dict] = {}
-agent_event_queues: dict[str, queue.Queue] = {}
 _gemini_api_key: str = ""
 _groq_api_key: str = ""
 
@@ -298,197 +276,7 @@ async def chat_message(request: Request):
     return StreamingResponse(sse_stream_chat(chat, message), media_type="text/event-stream")
 
 
-# ── Agent (Autonomous Security Agent) ──────────────────────────────────
 
-def _agent_event_emitter(event_queue: queue.Queue):
-    def emit(event_type: str, data: dict):
-        event_queue.put({"type": event_type, "data": data})
-    return emit
-
-
-async def sse_agent_stream(session_id: str):
-    event_queue = agent_event_queues.get(session_id)
-    if not event_queue:
-        yield f"data: {json.dumps({'type': 'error', 'content': 'Sesión no encontrada'})}\n\n"
-        return
-
-    try:
-        while True:
-            try:
-                event = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: event_queue.get(timeout=1)
-                )
-                yield f"data: {json.dumps(event)}\n\n"
-                if event.get("type") in ("agent_summary", "agent_complete", "agent_error"):
-                    break
-            except queue.Empty:
-                yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
-    except asyncio.CancelledError:
-        pass
-    finally:
-        agent_event_queues.pop(session_id, None)
-
-
-_RE_IP = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$")
-_RE_HOST = re.compile(r"^[\w.-]+\.[\w.-]+$")  # simple hostname with dot
-
-
-def _is_network_target(text: str) -> bool:
-    """Detect if input is an IP address or hostname instead of a filesystem path."""
-    if text.startswith("/") or text.startswith(".") or text.startswith("~"):
-        return False
-    return bool(_RE_IP.match(text)) or bool(_RE_HOST.match(text))
-
-
-@app.post("/api/agent/start")
-async def agent_start(request: Request):
-    if not _AGENT_MODULE_OK:
-        raise HTTPException(status_code=500, detail="Módulo Skoll Agent no disponible.")
-
-    body = await request.json()
-    ruta = body.get("path", "").strip()
-    provider = body.get("provider")
-    model = body.get("model")
-
-    if not ruta:
-        raise HTTPException(status_code=400, detail="El campo 'path' está vacío.")
-
-    is_network = _is_network_target(ruta)
-    if not is_network and not os.path.exists(ruta):
-        raise HTTPException(status_code=400, detail=f"La ruta '{ruta}' no existe.")
-
-    p = _resolve_provider(provider)
-    m = _resolve_model(p, model)
-    client = get_client(p)
-
-    session_id = str(uuid.uuid4())
-    event_queue: queue.Queue = queue.Queue()
-    agent_event_queues[session_id] = event_queue
-    emit = _agent_event_emitter(event_queue)
-
-    def run_agent_thread():
-        try:
-            loop = ReasoningLoop(client, ruta, event_callback=emit, is_network_target=is_network)
-            loop.run()
-        except Exception as e:
-            emit("agent_error", {"message": f"Error fatal: {e}"})
-
-    thread = threading.Thread(target=run_agent_thread, daemon=True)
-    thread.start()
-
-    return {
-        "session_id": session_id,
-        "status": "started",
-        "provider": p,
-        "model": m,
-        "path": ruta,
-    }
-
-
-@app.get("/api/agent/stream/{session_id}")
-async def agent_stream(session_id: str):
-    if session_id not in agent_event_queues:
-        raise HTTPException(status_code=404, detail="Sesión de agente no encontrada o ya finalizada.")
-    return StreamingResponse(
-        sse_agent_stream(session_id),
-        media_type="text/event-stream",
-    )
-
-
-@app.get("/api/agent/status/{session_id}")
-async def agent_status(session_id: str):
-    active = session_id in agent_event_queues
-    return {"session_id": session_id, "active": active, "available": _AGENT_MODULE_OK}
-
-
-# ── Agent Sessions ──────────────────────────────────────────────────────
-
-_session_mgr = SessionManager()
-
-
-@app.get("/api/agent/sessions")
-async def list_sessions():
-    return {"sessions": _session_mgr.list_sessions()}
-
-
-@app.get("/api/agent/sessions/{session_id}")
-async def get_session(session_id: str):
-    data = _session_mgr.get_session(session_id)
-    if not data:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
-
-    # Summarize for frontend
-    state = data.get("state", {})
-    return {
-        "session_id": data["session_id"],
-        "created_at": data.get("created_at", ""),
-        "updated_at": data.get("updated_at", ""),
-        "name": data.get("name", ""),
-        "target": data.get("target", ""),
-        "phase": data.get("phase", ""),
-        "state": {
-            "iteration": state.get("iteration", 0),
-            "max_iterations": state.get("max_iterations", 15),
-            "findings_count": len(state.get("findings", [])),
-            "open_findings": sum(1 for f in state.get("findings", []) if f.get("status") == "open"),
-            "critical_high": sum(1 for f in state.get("findings", []) if f.get("severity") in ("critical", "high")),
-            "scanned_files": len(state.get("scanned_files", [])),
-            "completed": state.get("completed", False),
-        },
-        "tasks": data.get("tasks", []),
-    }
-
-
-@app.delete("/api/agent/sessions/{session_id}")
-async def delete_session(session_id: str):
-    _session_mgr.delete(session_id)
-    return {"status": "ok"}
-
-
-@app.post("/api/agent/resume/{session_id}")
-async def resume_agent(session_id: str, request: Request):
-    if not _AGENT_MODULE_OK:
-        raise HTTPException(status_code=500, detail="Módulo Skoll Agent no disponible.")
-
-    body = await request.json()
-    provider = body.get("provider")
-    model = body.get("model")
-
-    data = _session_mgr.get_session(session_id)
-    if not data:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada.")
-
-    ruta = data.get("target", "")
-    if not ruta or not os.path.exists(ruta):
-        raise HTTPException(status_code=400, detail=f"El target '{ruta}' ya no existe.")
-
-    p = _resolve_provider(provider)
-    m = _resolve_model(p, model)
-    client = get_client(p)
-
-    new_session_id = str(uuid.uuid4())
-    event_queue: queue.Queue = queue.Queue()
-    agent_event_queues[new_session_id] = event_queue
-    emit = _agent_event_emitter(event_queue)
-
-    def run_agent_thread():
-        try:
-            loop = ReasoningLoop.resume(client, session_id, event_callback=emit)
-            loop.session_id = new_session_id
-            loop.run()
-        except Exception as e:
-            emit("agent_error", {"message": f"Error fatal: {e}"})
-
-    thread = threading.Thread(target=run_agent_thread, daemon=True)
-    thread.start()
-
-    return {
-        "session_id": new_session_id,
-        "status": "resumed",
-        "provider": p,
-        "model": m,
-        "path": ruta,
-    }
 
 
 if __name__ == "__main__":

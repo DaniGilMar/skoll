@@ -12,13 +12,20 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from orchestrator import Orchestrator
-from core.agent import SkollAgent
+from skoll_agent.brain.reasoning_loop import ReasoningLoop
+from skoll_agent.config.agent_config import CONFIG
+from skoll.client import crear_cliente
 
 router = APIRouter(prefix="/api/v2")
 
 _v2_queues: dict[str, queue.Queue] = {}
 _v2_results: dict[str, dict[str, Any]] = {}
+
+
+def _make_emitter(q: queue.Queue):
+    def emit(event_type: str, data: dict[str, Any]) -> None:
+        q.put({"type": event_type, "data": data})
+    return emit
 
 
 @router.post("/start")
@@ -34,30 +41,24 @@ async def v2_start(request: Request):
     session_id = str(uuid.uuid4())
     q: queue.Queue = queue.Queue()
     _v2_queues[session_id] = q
+    emit = _make_emitter(q)
 
     def run():
         try:
-            if tier == "agent":
-                agent = SkollAgent(progress_queue=q)
-                result = agent.run(
-                    target_raw=target,
-                    campaign_id=campaign_id,
-                )
-            else:
-                orch = Orchestrator()
-                result = orch.run(
-                    target_raw=target,
-                    campaign_id=campaign_id,
-                    tier_name=tier,
-                    skip_llm=False,
-                    progress_queue=q,
-                )
-            q.put({"type": "agent_complete", "data": {"result": "ok"}})
+            is_net = "." in target or "://" in target or "localhost" in target
+            client = crear_cliente()
+            loop = ReasoningLoop(
+                client, target,
+                event_callback=emit,
+                is_network_target=is_net,
+            )
+            result = loop.run()
+            emit("agent_complete", {"reasoning": "Pipeline completado"})
             _v2_results[session_id] = result
         except Exception as e:
             import traceback
-            q.put({"type": "agent_error", "data": {"message": f"{type(e).__name__}: {e}"}})
-            q.put({"type": "agent_complete", "data": {"result": "error"}})
+            emit("agent_error", {"message": f"{type(e).__name__}: {e}"})
+            emit("agent_complete", {"result": "error"})
 
     t = threading.Thread(target=run, daemon=True)
     t.start()

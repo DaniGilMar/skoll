@@ -17,7 +17,7 @@ class NmapEngine(BaseEngine):
         progress_cb = kwargs.get("progress_callback")
         args = [
             "nmap", "-sV", "-sC", "--min-rate", "5000", "-T5",
-            "--script=vuln", "-oX", "-", "--stats-every", "2s",
+            "-oX", "-", "--stats-every", "2s",
         ]
         if ports:
             args.extend(["-p", ports])
@@ -117,21 +117,21 @@ class NmapEngine(BaseEngine):
                                     "ip": ip,
                                 })
 
-            # Host-level scripts (not per-port)
-            for script in host.findall("script"):
-                script_id = script.get("id", "")
-                script_out = script.get("output", "")
-                if script_out and "vuln" in script_id.lower():
-                    findings.append({
-                        "file_path": ip,
-                        "line_start": 0, "line_end": 0,
-                        "severity": "medium",
-                        "title": f"Script: {script_id}",
-                        "description": script_out[:500],
-                        "tool": self.name,
-                        "rule_id": f"nmap-script-{script_id}",
-                        "ip": ip,
-                    })
+                # Host-level scripts (not per-port)
+                for script in host.findall("script"):
+                    script_id = script.get("id", "")
+                    script_out = script.get("output", "")
+                    if script_out and "vuln" in script_id.lower():
+                        findings.append({
+                            "file_path": ip,
+                            "line_start": 0, "line_end": 0,
+                            "severity": "medium",
+                            "title": f"Script: {script_id}",
+                            "description": script_out[:500],
+                            "tool": self.name,
+                            "rule_id": f"nmap-script-{script_id}",
+                            "ip": ip,
+                        })
 
         except ET.ParseError:
             pass
