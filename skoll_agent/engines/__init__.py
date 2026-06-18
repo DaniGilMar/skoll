@@ -66,6 +66,7 @@ from skoll_agent.engines.authz_engine import AuthzEngine
 from skoll_agent.engines.kiterunner_engine import KiterunnerEngine
 from skoll_agent.engines.postman_engine import PostmanEngine
 from skoll_agent.engines.burpsuite_engine import BurpSuiteEngine
+from skoll_agent.engines.caido_engine import CaidoEngine
 
 register_engine("rest", RestEngine)
 register_engine("graphql", GraphQLEngine)
@@ -75,6 +76,7 @@ register_engine("authz", AuthzEngine)
 register_engine("kiterunner", KiterunnerEngine)
 register_engine("postman", PostmanEngine)
 register_engine("burpsuite", BurpSuiteEngine)
+register_engine("caido", CaidoEngine)
 
 # Fase 5 — Active Directory
 from skoll_agent.engines.ldap_engine import LdapEngine
