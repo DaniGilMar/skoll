@@ -191,6 +191,13 @@ class MSFManager:
                 if re.search(r"\[\-\]\s+Exploit\s+failed", chunk, re.IGNORECASE):
                     break
 
+                if "Error in input stream" in chunk:
+                    self._emit("[MSF] RPC console error, falling back to subprocess")
+                    console.destroy()
+                    return self._execute_module_fallback(
+                        module, rhosts, rport, payload, lhost, lport, options, timeout
+                    )
+
                 busy = data.get("busy", False)
                 if not busy and not chunk.strip():
                     break

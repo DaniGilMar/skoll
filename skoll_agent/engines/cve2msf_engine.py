@@ -420,19 +420,26 @@ class CVE2MSFEngine(BaseEngine):
             )
             if r.returncode != 0:
                 return None
-            data = json.loads(r.stdout)
-            entries = data.get("RESULTS", [])
+            stdout_clean = re.sub(r'[^\x20-\x7e\n]', '', r.stdout)
+            data = json.loads(stdout_clean)
+            entries = data.get("RESULTS_EXPLOIT", data.get("RESULTS", []))
             if not entries:
                 return None
             first = entries[0]
             path = first.get("Path", "")
             edb_id = first.get("EDB-ID", "")
             title = first.get("Title", "")
+            tags = first.get("Tags", "")
+            msf_tag = tags if isinstance(tags, str) else ""
+            if "Metasploit" in msf_tag and "exploit/" in path.lower():
+                msf_module = path.replace("/usr/share/exploitdb/exploits/", "").replace(".rb", "").replace("/", "/")
+            else:
+                msf_module = "exploit/multi/handler"
             return {
-                "module": f"exploit/multi/handler",
+                "module": msf_module,
                 "payload": "generic/shell_reverse_tcp",
-                "service": "unknown",
-                "port": 0,
+                "service": data.get("Port", "unknown") or "unknown",
+                "port": int(data.get("Port", 0)) if data.get("Port", "").isdigit() else 0,
                 "description": f"searchsploit: {title[:150]} (EDB-{edb_id})",
                 "local_path": path,
                 "edb_id": edb_id,

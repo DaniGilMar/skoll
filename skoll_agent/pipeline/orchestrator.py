@@ -1143,7 +1143,10 @@ If RETRY, include a brief recovery command/approach.
                 params = task.get("params", {})
                 if task.get("tool") == "cve2msf" and self.msf_manager and self.msf_manager.get_client():
                     params["msf_client"] = self.msf_manager
-                self._run_tool(task.get("tool", ""), self.target, phase, extra=params)
+                try:
+                    self._run_tool(task.get("tool", ""), self.target, phase, extra=params)
+                except Exception as e:
+                    self._emit_log(f"  ⚠️ {task.get('tool')} falló (continuando): {e}")
 
             # Fallback: searchsploit + nuclei para CVEs sin módulo
             executed_cves = {t.get("cve", "") for t in tasks}
