@@ -13,6 +13,8 @@ from skoll_agent.workers.httpx_worker import HttpxWorker
 from skoll_agent.workers.katana_worker import KatanaWorker
 from skoll_agent.workers.ffuf_worker import FfufWorker
 from skoll_agent.workers.nuclei_worker import NucleiWorker
+from skoll_agent.workers.nmap_worker import NmapWorker
+from skoll_agent.workers.gobuster_worker import GobusterWorker
 
 ProgressCallback = Callable[[str, str, float], None]
 
@@ -46,9 +48,16 @@ class WorkflowManager:
         # Fase 2: Enumeración profunda ASN/DNS
         self._run_worker("amass", AmassWorker(), target, {**kwargs, "passive": True})
 
-        # Fase 3: Escaneo de puertos
+        # Fase 3: Escaneo de puertos — naabu prioritario, nmap como fallback
         naabu_kw = {"top_ports": kwargs.get("top_ports", 100)}
         self._run_worker("naabu", NaabuWorker(), target, naabu_kw)
+        naabu_result = self._results.get(f"naabu:{target}", WorkerResult(tool_name="naabu", target=target, success=False))
+        if not naabu_result.success or len(naabu_result.findings) == 0:
+            nmap_msg = "naabu no encontró puertos → fallback a nmap"
+            if event_queue:
+                event_queue.put({"type": "log", "data": {"message": nmap_msg}})
+            nmap_ports = kwargs.get("nmap_ports", "80,443,8080,8443,22,21,5432,3306,27017,6379,9200,5000,9090")
+            self._run_worker("nmap", NmapWorker(), target, {"ports": nmap_ports, "timeout": kwargs.get("nmap_timeout", 300)})
 
         # Fase 4: Fingerprinting web (sobre URLs descubiertas o target base)
         urls = self._collect_urls()
@@ -70,9 +79,20 @@ class WorkflowManager:
             }
             self._check_web_credentials(web_targets, **creds_kwargs)
 
-        # Fase 6: Crawling profundo
+        # Fase 6: Crawling profundo — katana prioritario, gobuster como fallback
         for wt in web_targets:
             self._run_worker("katana", KatanaWorker(), wt, {"depth": kwargs.get("crawl_depth", 2)})
+            katana_key = f"katana:{wt}"
+            k_result = self._results.get(katana_key, WorkerResult(tool_name="katana", target=wt, success=False))
+            if not k_result.success or len(k_result.findings) == 0:
+                gb_msg = f"katana no encontró endpoints en {wt} → fallback a gobuster"
+                if event_queue:
+                    event_queue.put({"type": "log", "data": {"message": gb_msg}})
+                self._run_worker("gobuster", GobusterWorker(), wt, {
+                    "wordlist": kwargs.get("wordlist", "/usr/share/wordlists/dirb/common.txt"),
+                    "timeout": kwargs.get("gobuster_timeout", 120),
+                    "threads": kwargs.get("gobuster_threads", 20),
+                })
 
         # Fase 7: Fuzzing de endpoints
         for wt in web_targets:
