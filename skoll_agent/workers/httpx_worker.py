@@ -10,13 +10,7 @@ class HttpxWorker(BaseWorker):
     name = "httpx"
 
     def run(self, target: str, **kwargs: Any) -> WorkerResult:
-        args = ["-u", target, "-json", "-silent"]
-        if kwargs.get("tech_detect") or kwargs.get("tech"):
-            args.append("-tech-detect")
-        if kwargs.get("status_code"):
-            args.append("-status-code")
-        if kwargs.get("title"):
-            args.append("-title")
+        args = ["-u", target, "-j", "-silent", "-sc", "-title", "-td"]
         if kwargs.get("follow_redirects"):
             args.append("-follow-redirects")
         if kwargs.get("threads"):

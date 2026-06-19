@@ -9,14 +9,16 @@ class NucleiWorker(BaseWorker):
     name = "nuclei"
 
     def run(self, target: str, **kwargs: Any) -> WorkerResult:
-        args = ["-u", target, "-json", "-silent", "-rl", "50"]
+        args = ["-u", target, "-j", "-silent", "-rl", "150"]
         if kwargs.get("templates"):
             args.extend(["-t", kwargs["templates"]])
-        if kwargs.get("severity"):
-            args.extend(["-severity", kwargs["severity"]])
+        sev = kwargs.get("severity", "medium,high,critical")
+        if sev:
+            args.extend(["-severity", sev])
         if kwargs.get("tags"):
             args.extend(["-tags", kwargs["tags"]])
-        return self.execute("nuclei", args, target, parse_json_lines=False)
+        tout = kwargs.get("timeout", 120)
+        return self.execute("nuclei", args, target, timeout=tout, parse_json_lines=False)
 
     def parse_output(self, raw_output: str) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []

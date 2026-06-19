@@ -592,3 +592,38 @@
 + GET /: Hostname '127.0.0.1' does not match certificate names (CN: localhost, SAN: pentagi.local). See: https://cwe.mitre.org/data/definitions/297.html: 
 + YZAAWBJU /: Web Server returns a valid response with junk HTTP methods which may cause false positives.
 + GET /login/: This might be interesting.
+- Nikto v2.6.0/
++ Target Host: 
++ Target Port: 80
++ GET ERROR: Cannot resolve hostname '127.0.0.1/login.php' because 'Nombre o servicio desconocido'.
+- Nikto v2.6.0/
++ Target Host: 127.0.0.1
++ Target Port: 80
++ GET /: Cookie PHPSESSID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies: 
++ GET /: Cookie security created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies: 
++ HEAD Apache/2.4.25 appears to be outdated (current is at least 2.4.66).
++ GET /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options: 
++ GET /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security: 
++ GET /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy: 
++ GET /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP: 
++ GET /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy: 
+- Nikto v2.6.0/
++ Target Host: 127.0.0.1
++ Target Port: 8443
++ SSL Info:           Subject:  /C=US/ST=NY/L=NY/O=PentAGI/OU=Project/CN=localhost
+                      CN:       localhost
+                      SAN:      pentagi.local
+                      Ciphers:  TLS_AES_128_GCM_SHA256
+                      Issuer:   /C=US/ST=NY/L=NY/O=PentAGI/OU=Project/CN=PentAGI CA
++ GET /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP: 
++ GET /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security: 
++ GET /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy: 
++ GET /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy: 
++ GET /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options: 
++ GET /config/: Directory indexing found.
++ GET /config/: Configuration information may be available remotely.
++ GET /: Hostname '127.0.0.1' does not match certificate names (CN: localhost, SAN: pentagi.local). See: https://cwe.mitre.org/data/definitions/297.html: 
++ GET /docs/: Directory indexing found.
++ GET /icons/README: Apache default file found. See: https://www.vntweb.co.uk/apache-restricting-access-to-iconsreadme/: 
++ GET /login.php: Admin login page/section found.
++ ONWRLREI /: Web Server returns a valid response with junk HTTP methods which may cause false positives.

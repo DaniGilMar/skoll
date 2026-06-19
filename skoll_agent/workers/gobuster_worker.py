@@ -10,6 +10,7 @@ class GobusterWorker(BaseWorker):
     name = "gobuster"
 
     def run(self, target: str, **kwargs: Any) -> WorkerResult:
+        self._target = target
         clean = target.split("://")[-1].rstrip("/")
         args = ["dir", "-u", target, "-q"]
         wordlist = kwargs.get("wordlist", "/usr/share/wordlists/dirb/common.txt")
@@ -26,6 +27,7 @@ class GobusterWorker(BaseWorker):
 
     def parse_output(self, raw_output: str) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []
+        base = getattr(self, "_target", "").rstrip("/")
         # Gobuster dir output: "path (Status: 200)" without leading / (modern gobuster)
         pattern = re.compile(r"^/?(\S+)\s+\(Status:\s+(\d+)\)")
         for line in raw_output.strip().split("\n"):
@@ -38,7 +40,7 @@ class GobusterWorker(BaseWorker):
                 status = int(m.group(2))
                 findings.append({
                     "type": "endpoint",
-                    "name": f"{target.rstrip('/')}{path}",
+                    "name": f"{base}{path}",
                     "severity": "info",
                     "description": f"Endpoint descubierto: {path} (Status: {status})",
                     "data": {"path": path, "status_code": status, "size": None},

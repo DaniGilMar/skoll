@@ -43,9 +43,14 @@ TOOL_REQUIREMENTS: dict[str, str] = {
 
 
 def check_tool(binary: str) -> str | None:
-    path = shutil.which(binary)
-    if path:
-        return path
+    TOOL_ALIASES: dict[str, list[str]] = {
+        "httpx": ["httpx-toolkit", "httpx"],
+    }
+    candidates = TOOL_ALIASES.get(binary, [binary])
+    for name in candidates:
+        path = shutil.which(name)
+        if path:
+            return path
     hint = TOOL_REQUIREMENTS.get(binary, f"Install {binary} manually")
     return None
 

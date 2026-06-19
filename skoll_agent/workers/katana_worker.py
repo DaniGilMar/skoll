@@ -10,7 +10,7 @@ class KatanaWorker(BaseWorker):
     name = "katana"
 
     def run(self, target: str, **kwargs: Any) -> WorkerResult:
-        args = ["-u", target, "-json", "-silent"]
+        args = ["-u", target, "-j", "-silent"]
         # JS crawling + depth + filter: needed for real crawling (e.g. DVWA redirects)
         if kwargs.get("no_defaults"):
             if kwargs.get("depth"):
@@ -30,9 +30,10 @@ class KatanaWorker(BaseWorker):
             args.append("-headless")
         if kwargs.get("rate_limit"):
             args.extend(["-rl", str(kwargs["rate_limit"])])
-        if kwargs.get("timeout"):
-            args.extend(["-timeout", str(kwargs["timeout"])])
-        return self.execute("katana", args, target, parse_json_lines=False)
+        tout = kwargs.get("timeout", 60)
+        if tout:
+            args.extend(["-timeout", str(tout)])
+        return self.execute("katana", args, target, timeout=tout, parse_json_lines=False)
 
     def parse_output(self, raw_output: str) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []
