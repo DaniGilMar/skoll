@@ -325,9 +325,15 @@ def _format_ragnarok_for_chat(structured: dict[str, Any]) -> str:
 @app.post("/api/ragnarok/scan")
 async def ragnarok_scan(request: Request):
     body = await request.json()
-    target = body.get("target", "").strip()
-    if not target:
+    raw_target = body.get("target", "").strip()
+    if not raw_target:
         raise HTTPException(status_code=400, detail="target is required")
+    # Sanitize: remove http:// https:// for network tools
+    import re as _re
+    target = _re.sub(r"^https?://", "", raw_target).rstrip("/")
+    if not target:
+        target = raw_target
+    is_web_target = raw_target.startswith(("http://", "https://"))
     session_id = str(uuid.uuid4())
     q: queue.Queue = queue.Queue()
     _ragnarok_queues[session_id] = q

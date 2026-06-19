@@ -33,13 +33,14 @@ class NaabuWorker(BaseWorker):
                 obj = json.loads(line)
                 port = obj.get("port")
                 if port:
-                    findings.append({
-                        "type": "port",
-                        "name": f"{obj.get('address', '')}:{port}",
-                        "severity": "medium",
-                        "description": f"Puerto abierto: {port}/{obj.get('protocol', 'tcp')}",
-                        "data": obj,
-                    })
+                    ip = obj.get("ip") or obj.get("address", "")
+                findings.append({
+                    "type": "port",
+                    "name": f"{ip}:{port}",
+                    "severity": "medium",
+                    "description": f"Puerto abierto: {port}/{obj.get('protocol', 'tcp')}",
+                    "data": obj,
+                })
             except json.JSONDecodeError:
                 pass
         return findings

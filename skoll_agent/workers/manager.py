@@ -191,15 +191,34 @@ class WorkflowManager:
         for key, res in self._results.items():
             if res.success:
                 for f in res.findings:
-                    if f.get("type") in ("web", "endpoint", "port"):
-                        name = f.get("name", "")
-                        if name and ("http" in name or ":80" in name or ":443" in name or ":8080" in name):
-                            targets.add(name.split(":")[0] if "://" not in name else name)
+                    ftype = f.get("type", "")
+                    name = f.get("name", "")
+                    if ftype == "port":
+                        # name format: "IP:port" from naabu/nmap
+                        port = f.get("data", {}).get("port") or (name.split(":")[-1] if ":" in name else "80")
+                        ip = name.split(":")[0] if ":" in name else name
+                        if port in (80, 443, 8080, 8443, 3000, 5000, 8000, 8888, 9090, 9443):
+                            targets.add(f"http://{ip}:{port}")
+                            if port in (443, 8443, 9443):
+                                targets.add(f"https://{ip}:{port}")
+                    elif ftype in ("web", "endpoint"):
+                        # name is already a URL
+                        if "://" not in name:
+                            name = f"http://{name}"
+                        targets.add(name)
         if not targets:
-            # Fallback: derivar de las claves de resultados
+            # Fallback: derivar de las claves de resultados httpx
             for key in self._results:
                 if ":http" in key or ":https" in key:
                     targets.add(key.split(":", 1)[1])
+        # Fallback final: target base con puertos web comunes
+        if not targets:
+            base = list(self._results.keys())[0].split(":", 1)[-1] if self._results else ""
+            if base and not base.startswith("http"):
+                for p in ("80", "443", "8080", "8443"):
+                    targets.add(f"http://{base}:{p}")
+                    if p in ("443", "8443"):
+                        targets.add(f"https://{base}:{p}")
         return sorted(targets)
 
     def summary(self) -> dict[str, Any]:
