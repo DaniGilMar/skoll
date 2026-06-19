@@ -324,7 +324,7 @@ async def ragnarok_scan(request: Request):
             from skoll_agent.engines.ragnarok_engine import RagnarokEngine
             engine = RagnarokEngine()
             q.put({"type": "log", "data": {"message": f"Iniciando Ragnarök workflow contra {target}"}})
-            result = engine.scan(target)
+            result = engine.scan(target, event_queue=q, session_id=session_id)
             structured = engine.get_structured_data(target)
             structured["engine_result"] = {
                 "success": result.success,
@@ -387,6 +387,41 @@ async def ragnarok_chat_context(session_id: str):
         raise HTTPException(status_code=404, detail="Result not available")
     formatted = _format_ragnarok_for_chat(result)
     return {"context": formatted, "structured": result}
+
+
+# ── Credential response endpoint ──────────────────────────────────────────
+
+@app.post("/api/ragnarok/credentials")
+async def ragnarok_credentials(request: Request):
+    """Recibe credenciales del usuario en respuesta a una solicitud ask_credentials."""
+    body = await request.json()
+    session_id = body.get("session_id", "")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    from skoll_agent.sandbox.human_in_loop import _pending_creds, _pending_creds_lock
+    with _pending_creds_lock:
+        pending = _pending_creds.get(session_id)
+
+    if not pending:
+        raise HTTPException(status_code=404, detail="No pending credential request for this session")
+
+    # Build response: either provide creds or skip
+    response = {}
+    if "username" in body and "password" in body:
+        response["username"] = body["username"]
+        response["password"] = body["password"]
+    elif body.get("skip"):
+        response["skip"] = True
+    else:
+        raise HTTPException(status_code=400, detail="Provide username+password or skip=true")
+
+    with _pending_creds_lock:
+        if session_id in _pending_creds:
+            _pending_creds[session_id]["response"] = response
+            _pending_creds[session_id]["event"].set()
+
+    return {"status": "credentials received"}
 
 
 # ── Ragnarök CLI helper ───────────────────────────────────────────────────

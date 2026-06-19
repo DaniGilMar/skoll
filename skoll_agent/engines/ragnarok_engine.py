@@ -21,11 +21,11 @@ class RagnarokEngine(BaseEngine):
         "fuzzing", "vuln_scan", "recon", "enumeration",
     ]
 
-    def scan(self, target: str, **kwargs: Any) -> EngineResult:
+    def scan(self, target: str, event_queue: Any = None, session_id: str | None = None, **kwargs: Any) -> EngineResult:
         manager = WorkflowManager()
         start = time.time()
 
-        results = manager.run_all(target, **kwargs)
+        results = manager.run_all(target, event_queue=event_queue, session_id=session_id, **kwargs)
         elapsed = time.time() - start
 
         all_findings: list[dict[str, Any]] = []
@@ -42,6 +42,21 @@ class RagnarokEngine(BaseEngine):
             status = "OK" if res.success else "FAIL"
             worker_summaries.append(f"{wname}: {status} ({len(res.findings)} findings)")
 
+        # Add credentials to findings
+        for url, creds in manager._credentials.items():
+            all_findings.append({
+                "file_path": url,
+                "line_start": 0,
+                "line_end": 0,
+                "severity": "info",
+                "title": "Credenciales encontradas",
+                "description": f"Credenciales para {url}: {creds['username']}:{creds['password']}",
+                "tool": "credentials",
+                "rule_id": "creds-found",
+                "type": "credentials",
+                "raw_data": str(creds),
+            })
+
         summary = manager.summary()
         total_duration = summary.get("duration", elapsed)
 
@@ -53,6 +68,7 @@ class RagnarokEngine(BaseEngine):
                 f"Ragnarök workflow completado en {total_duration:.1f}s. "
                 f"{summary['total_workers']} workers, {summary['successful']} exitosos, "
                 f"{summary['total_findings']} hallazgos. "
+                f"Credenciales obtenidas para {len(manager._credentials)} servicios. "
                 f"Workers: {' | '.join(worker_summaries)}"
             ),
         )
@@ -86,5 +102,5 @@ class RagnarokEngine(BaseEngine):
 
     def get_structured_data(self, target: str, **kwargs: Any) -> dict[str, Any]:
         manager = WorkflowManager()
-        manager.run_all(target, **kwargs)
+        manager.run_all(target, skip_credentials=True, **kwargs)
         return manager.to_structured()

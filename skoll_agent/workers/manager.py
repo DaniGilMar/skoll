@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
+from skoll_agent.sandbox.human_in_loop import HumanInLoop
+from skoll_agent.engines.credential_manager import COMMON_CREDENTIALS, brute_force_login, detect_login_forms, _fetch_page
 from skoll_agent.workers.base_worker import WorkerResult
 from skoll_agent.workers.subfinder_worker import SubfinderWorker
 from skoll_agent.workers.amass_worker import AmassWorker
@@ -22,20 +24,22 @@ class WorkflowManager:
     2. amass — enumeración ASN/DNS profunda
     3. naabu — escaneo de puertos masivo
     4. httpx — fingerprinting web
-    5. katana — crawling profundo
-    6. ffuf — fuzzing de endpoints
-    7. nuclei — detección de vulnerabilidades
+    5. credential check — detección de login + ask/brute-force
+    6. katana — crawling profundo
+    7. ffuf — fuzzing de endpoints
+    8. nuclei — detección de vulnerabilidades
     """
 
     def __init__(self, progress_callback: ProgressCallback | None = None) -> None:
         self._results: dict[str, WorkerResult] = {}
+        self._credentials: dict[str, dict[str, str]] = {}
         self._progress = progress_callback or (lambda *a: None)
 
     @property
     def results(self) -> dict[str, WorkerResult]:
         return dict(self._results)
 
-    def run_all(self, target: str, **kwargs: Any) -> dict[str, WorkerResult]:
+    def run_all(self, target: str, event_queue: Any = None, session_id: str | None = None, skip_credentials: bool = False, **kwargs: Any) -> dict[str, WorkerResult]:
         # Fase 1: Descubrimiento DNS
         self._run_worker("subfinder", SubfinderWorker(), target, kwargs)
 
@@ -55,17 +59,27 @@ class WorkflowManager:
             self._run_worker("httpx", HttpxWorker(), f"http://{target}", {"tech_detect": True, "status_code": True, "title": True})
             self._run_worker("httpx", HttpxWorker(), f"https://{target}", {"tech_detect": True, "status_code": True, "title": True})
 
-        # Fase 5: Crawling profundo
+        # Fase 5: Detección de credenciales + brute-force
         web_targets = self._collect_web_targets()
+        if not skip_credentials:
+            creds_kwargs = {
+                "event_queue": event_queue,
+                "session_id": session_id,
+                "timeout": kwargs.get("creds_timeout", 300),
+                "skip_brute": kwargs.get("skip_brute", False),
+            }
+            self._check_web_credentials(web_targets, **creds_kwargs)
+
+        # Fase 6: Crawling profundo
         for wt in web_targets:
             self._run_worker("katana", KatanaWorker(), wt, {"depth": kwargs.get("crawl_depth", 2)})
 
-        # Fase 6: Fuzzing de endpoints
+        # Fase 7: Fuzzing de endpoints
         for wt in web_targets:
             wordlist = kwargs.get("wordlist", "/usr/share/wordlists/dirb/common.txt")
             self._run_worker("ffuf", FfufWorker(), wt, {"wordlist": wordlist, "mc": "200,204,301,302,307,401,403,405,500"})
 
-        # Fase 7: Escaneo de vulnerabilidades
+        # Fase 8: Escaneo de vulnerabilidades
         for wt in web_targets:
             self._run_worker("nuclei", NucleiWorker(), wt, {
                 "severity": kwargs.get("nuclei_severity", "medium,high,critical"),
@@ -73,6 +87,64 @@ class WorkflowManager:
             })
 
         return self._results
+
+    def _check_web_credentials(
+        self,
+        web_targets: list[str],
+        event_queue: Any = None,
+        session_id: str | None = None,
+        timeout: int = 300,
+        skip_brute: bool = False,
+    ) -> None:
+        """Detecta formularios de login en servicios web, pregunta usuario o brute-forcea."""
+        for wt in web_targets:
+            if wt in self._credentials:
+                continue
+            try:
+                html = _fetch_page(wt, timeout=10)
+            except Exception:
+                continue
+
+            forms = detect_login_forms(wt, html)
+            if not forms:
+                continue
+
+            form = forms[0]
+            self._progress("credentials", wt, 0.0)
+            log_msg = f"Login detectado en {wt} — form action: {form.action}"
+            if event_queue:
+                event_queue.put({"type": "log", "data": {"message": log_msg}})
+
+            hil = HumanInLoop(enabled=True)
+            creds = hil.ask_credentials(wt, form.action, event_queue=event_queue, session_id=session_id, timeout=timeout)
+
+            if creds:
+                self._credentials[wt] = creds
+                msg = f"Credenciales obtenidas para {wt}: {creds['username']}"
+                if event_queue:
+                    event_queue.put({"type": "log", "data": {"message": msg}})
+                continue
+
+            # Fallback: brute-force
+            if skip_brute:
+                if event_queue:
+                    event_queue.put({"type": "log", "data": {"message": f"Brute-force omitido para {wt}"}})
+                continue
+
+            brute_msg = f"Iniciando brute-force contra {form.action} (diccionario: {len(COMMON_CREDENTIALS)} pares)"
+            if event_queue:
+                event_queue.put({"type": "log", "data": {"message": brute_msg}})
+
+            found = brute_force_login(form, timeout=5)
+            if found:
+                self._credentials[wt] = {"username": found["username"], "password": found["password"]}
+                if event_queue:
+                    event_queue.put({"type": "log", "data": {
+                        "message": f"Brute-force exitoso en {wt}: {found['username']}:{found['password']}",
+                    }})
+            else:
+                if event_queue:
+                    event_queue.put({"type": "log", "data": {"message": f"Brute-force fallido en {wt} — no se encontraron credenciales"}})
 
     def _run_worker(self, name: str, worker: Any, target: str, kwargs: dict[str, Any]) -> None:
         self._progress(name, target, 0.0)
