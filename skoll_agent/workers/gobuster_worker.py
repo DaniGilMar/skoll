@@ -26,15 +26,15 @@ class GobusterWorker(BaseWorker):
 
     def parse_output(self, raw_output: str) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []
-        # Gobuster dir output: /admin (Status: 200) [Size: 1234]
-        pattern = re.compile(r"^(\/\S+)\s+\(Status:\s+(\d+)\)")
+        # Gobuster dir output: "path (Status: 200)" without leading / (modern gobuster)
+        pattern = re.compile(r"^/?(\S+)\s+\(Status:\s+(\d+)\)")
         for line in raw_output.strip().split("\n"):
             line = line.strip()
             if not line:
                 continue
             m = pattern.search(line)
             if m:
-                path = m.group(1)
+                path = "/" + m.group(1).lstrip("/")
                 status = int(m.group(2))
                 findings.append({
                     "type": "endpoint",

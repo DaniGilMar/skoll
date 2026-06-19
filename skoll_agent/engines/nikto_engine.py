@@ -13,7 +13,7 @@ class NiktoEngine(BaseEngine):
     capabilities = ["web_vuln_scan", "web_security", "cgi_scan"]
 
     def scan(self, target: str, **kwargs: Any) -> EngineResult:
-        timeout = kwargs.get("timeout", 240)
+        timeout = kwargs.get("timeout", 60)
         args = [
             "nikto", "-h", target,
             "-C", "all",

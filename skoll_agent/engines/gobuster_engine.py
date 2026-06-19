@@ -58,19 +58,21 @@ class GobusterEngine(BaseEngine):
             line = line.strip()
             if not line or line.startswith("Error"):
                 continue
-            m = re.match(r"/(\S+)\s+\(Status:\s*(\d+)\)", line)
+            # gobuster output: "path (Status: 200) [Size: 1234]" without leading /
+            # or old format: "/path (Status: 200) [Size: 1234]" with leading /
+            m = re.match(r"/?(\S+)\s+\(Status:\s*(\d+)\)", line)
             if m:
                 path, status = m.group(1), int(m.group(2))
                 sev = "medium" if status in (200, 201, 204) else "low" if status in (301, 302, 403) else "info"
                 findings.append({
-                    "file_path": f"{path}",
+                    "file_path": f"/{path.lstrip('/')}",
                     "line_start": 0, "line_end": 0,
                     "severity": sev,
-                    "title": f"Path found: /{path} (HTTP {status})",
-                    "description": f"Discovered path /{path} with status {status}",
+                    "title": f"Path found: /{path.lstrip('/')} (HTTP {status})",
+                    "description": f"Discovered path /{path.lstrip('/')} with status {status}",
                     "tool": self.name,
                     "rule_id": f"gobuster-{path}",
-                    "path": f"/{path}",
+                    "path": f"/{path.lstrip('/')}",
                     "status": status,
                 })
         return findings

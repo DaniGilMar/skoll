@@ -28,7 +28,7 @@ class SqlmapEngine(BaseEngine):
             args.append("--dbs")
 
         try:
-            result = subprocess.run(args, capture_output=True, text=True, timeout=kwargs.get("timeout", 300))
+            result = subprocess.run(args, capture_output=True, text=True, timeout=kwargs.get("timeout", 120))
             raw = result.stdout + result.stderr
             if not raw.strip():
                 return EngineResult(success=True, raw_output="", summary="sqlmap: no injection found")

@@ -11,8 +11,15 @@ class KatanaWorker(BaseWorker):
 
     def run(self, target: str, **kwargs: Any) -> WorkerResult:
         args = ["-u", target, "-json", "-silent"]
-        if kwargs.get("depth"):
-            args.extend(["-d", str(kwargs["depth"])])
+        # JS crawling + depth + filter: needed for real crawling (e.g. DVWA redirects)
+        if kwargs.get("no_defaults"):
+            if kwargs.get("depth"):
+                args.extend(["-d", str(kwargs["depth"])])
+        else:
+            args.append("-jc")
+            args.extend(["-d", str(kwargs.get("depth", 3))])
+            if not kwargs.get("field"):
+                args.extend(["-f", "qurl"])
         if kwargs.get("known_files"):
             args.append("-known-files")
         if kwargs.get("no_crawl"):

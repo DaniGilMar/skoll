@@ -115,6 +115,20 @@ class PipelineOrchestrator:
             "tool": finding.tool,
         })
 
+    def _update_nuclei_templates(self) -> None:
+        try:
+            self._emit_log("  nuclei: actualizando templates...")
+            result = subprocess.run(
+                ["nuclei", "-update-templates", "-silent"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                self._emit_log("  nuclei: templates actualizados")
+            else:
+                self._emit_log(f"  nuclei: update warning ({result.stderr[:100]})")
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            self._emit_log(f"  nuclei: update skip ({e})")
+
     def _run_tool(
         self, tool_name: str, target: str, phase: PhaseResult,
         extra: dict[str, Any] | None = None,
@@ -523,6 +537,10 @@ If RETRY, include a brief recovery command/approach.
     def run(self) -> AgentState:
         self._emit_log(f"Iniciando pipeline {'de red' if self.is_network else 'local'} para {self.target}")
 
+        # Actualizar templates de nuclei antes de empezar
+        if self.is_network:
+            self._update_nuclei_templates()
+
         # SAGE recall — check historical context
         if self.is_network:
             sage_ctx = recall_context_for_scan(self.target)
@@ -610,16 +628,19 @@ If RETRY, include a brief recovery command/approach.
         phase = self.pipeline.get_phase(PhaseId.RECON)
         self._emit_log("Fase 0: RECON — Descubrimiento de puertos y servicios")
 
-        # Masscan pre-scan: puertos en segundos
+        # Masscan pre-scan: solo en remoto (localhost no necesita rate alto)
         masscan_ports = None
-        try:
-            masscan_result = self._run_tool("masscan", self.target, phase, extra={"rate": 50000, "timeout": 60})
-            masscan_open = [r.get("port", 0) for r in masscan_result if r.get("port")]
-            if masscan_open:
-                masscan_ports = ",".join(str(p) for p in sorted(masscan_open))
-                self._emit_log(f"  masscan: {len(masscan_open)} puertos abiertos detectados")
-        except Exception as e:
-            self._emit_log(f"  masscan no disponible: {e}")
+        if self.target in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
+            self._emit_log(f"  masscan: saltado (target local — naabu es suficiente)")
+        else:
+            try:
+                masscan_result = self._run_tool("masscan", self.target, phase, extra={"rate": 1000, "timeout": 60})
+                masscan_open = [r.get("port", 0) for r in masscan_result if r.get("port")]
+                if masscan_open:
+                    masscan_ports = ",".join(str(p) for p in sorted(masscan_open))
+                    self._emit_log(f"  masscan: {len(masscan_open)} puertos abiertos detectados")
+            except Exception as e:
+                self._emit_log(f"  masscan no disponible: {e}")
 
         # Naabu primero (más rápido que nmap)
         naabu_extra: dict[str, Any] = {"timeout": 120}
@@ -739,7 +760,7 @@ If RETRY, include a brief recovery command/approach.
                 proto = "https" if port_info.port in (443, 8443) else "http"
                 url = f"{proto}://{self.target}:{port_info.port}"
                 self._emit_log(f"  Web: {url}")
-                parallel_tools.append(("katana", url, {"depth": 2}))
+                parallel_tools.append(("katana", url, {"depth": 3}))
                 parallel_tools.append(("ffuf", url, {}))
                 parallel_tools.append(("nikto", url, {}))
                 parallel_tools.append(("nuclei", url, {}))

@@ -44,7 +44,7 @@ class HydraEngine(BaseEngine):
         args.append(service)
 
         try:
-            result = subprocess.run(args, capture_output=True, text=True, timeout=kwargs.get("timeout", 300))
+            result = subprocess.run(args, capture_output=True, text=True, timeout=kwargs.get("timeout", 60))
             raw = result.stdout + result.stderr
             if not raw.strip():
                 return EngineResult(success=True, raw_output="", summary="hydra: no credentials found")
@@ -54,7 +54,7 @@ class HydraEngine(BaseEngine):
                 summary=f"hydra: {len(findings)} credentials found on {target}",
             )
         except subprocess.TimeoutExpired:
-            return EngineResult(success=False, raw_output="", summary="hydra: timeout", error="Timeout (300s)")
+            return EngineResult(success=False, raw_output="", summary="hydra: timeout", error="Timeout (60s)")
         except FileNotFoundError:
             return EngineResult(success=False, raw_output="", summary="hydra: not installed", error="Install hydra")
         except Exception as e:
