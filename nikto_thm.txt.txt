@@ -627,3 +627,7 @@
 + GET /icons/README: Apache default file found. See: https://www.vntweb.co.uk/apache-restricting-access-to-iconsreadme/: 
 + GET /login.php: Admin login page/section found.
 + ONWRLREI /: Web Server returns a valid response with junk HTTP methods which may cause false positives.
+- Nikto v2.6.0/
++ Target Host: 
++ Target Port: 80
++ GET ERROR: Cannot resolve hostname '127.0.0.1/login.php' because 'Nombre o servicio desconocido'.

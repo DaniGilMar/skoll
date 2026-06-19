@@ -328,11 +328,13 @@ async def ragnarok_scan(request: Request):
     raw_target = body.get("target", "").strip()
     if not raw_target:
         raise HTTPException(status_code=400, detail="target is required")
-    # Sanitize: remove http:// https:// for network tools
-    import re as _re
-    target = _re.sub(r"^https?://", "", raw_target).rstrip("/")
-    if not target:
-        target = raw_target
+    # Sanitize: extract only host/IP, discard path and scheme
+    from urllib.parse import urlparse
+    norm = raw_target
+    if "://" not in norm:
+        norm = "//" + norm
+    parsed = urlparse(norm)
+    target = parsed.hostname or raw_target
     is_web_target = raw_target.startswith(("http://", "https://"))
     session_id = str(uuid.uuid4())
     q: queue.Queue = queue.Queue()

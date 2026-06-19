@@ -67,10 +67,15 @@ class PipelineOrchestrator:
         event_callback: EventCallback | None = None,
         session_id: str | None = None,
     ):
-        # Sanitizar target: eliminar esquema http:// https:// para herramientas de red
+        # Sanitizar target: extraer solo host/IP, descartar path y esquema
         raw_target = target
         if is_network:
-            target = re.sub(r"^https?://", "", target).rstrip("/")
+            from urllib.parse import urlparse
+            if "://" not in target:
+                target = "//" + target
+            parsed = urlparse(target)
+            if parsed.hostname:
+                target = parsed.hostname
             if not target:
                 target = raw_target
         self.target = target
