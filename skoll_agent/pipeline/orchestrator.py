@@ -67,6 +67,12 @@ class PipelineOrchestrator:
         event_callback: EventCallback | None = None,
         session_id: str | None = None,
     ):
+        # Sanitizar target: eliminar esquema http:// https:// para herramientas de red
+        raw_target = target
+        if is_network:
+            target = re.sub(r"^https?://", "", target).rstrip("/")
+            if not target:
+                target = raw_target
         self.target = target
         self.is_network = is_network
         self.llm = llm_client
@@ -85,6 +91,12 @@ class PipelineOrchestrator:
         from skoll_agent.report.cost_tracker import CostTracker
         self._custody = ChainOfCustody(target=target, session_id=session_id or "")
         self._cost_tracker = CostTracker()
+
+        # Asegurar que los directorios de reportes existen
+        reports_dir = Path.home() / ".skoll" / "reports"
+        costs_dir = Path.home() / ".skoll" / "costs"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        costs_dir.mkdir(parents=True, exist_ok=True)
 
     def _emit(self, event_type: str, data: dict[str, Any]) -> None:
         if self.event:

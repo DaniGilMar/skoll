@@ -10,7 +10,9 @@ class NaabuWorker(BaseWorker):
     name = "naabu"
 
     def run(self, target: str, **kwargs: Any) -> WorkerResult:
-        args = ["-host", target, "-json", "-silent"]
+        # Stripear esquema http/https para naabu (solo IP/hostname)
+        clean = target.split("://")[-1].rstrip("/")
+        args = ["-host", clean, "-json", "-silent"]
         if kwargs.get("ports"):
             args.extend(["-p", str(kwargs["ports"])])
         if kwargs.get("top_ports"):
