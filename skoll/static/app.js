@@ -9,7 +9,7 @@
 let selectedFile    = null;
 let chatSessionId   = null;
 let isStreaming     = false;
-let currentProvider = "groq";
+let currentProvider = "openrouter";
 let _toolResultId   = 0;
 
 const MODELS = {
@@ -24,6 +24,13 @@ const MODELS = {
     { value: "llama3-70b-8192",         label: "Llama3 70B" },
     { value: "llama3-8b-8192",          label: "Llama3 8B" },
   ],
+  openrouter: [
+    { value: "deepseek/deepseek-chat",          label: "DeepSeek Chat" },
+    { value: "mistral/mistral-nemo",            label: "Mistral Nemo" },
+    { value: "microsoft/phi-4",                 label: "Phi-4" },
+    { value: "google/gemini-2.0-flash-exp:free",label: "Gemini 2.0 Flash (free)" },
+    { value: "qwen/qwen-2.5-72b-instruct",      label: "Qwen 2.5 72B" },
+  ],
 };
 
 // ── Init ──────────────────────────────────────────────────────────────
@@ -34,7 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupDropZone();
   setupChatTextarea();
   setupModelWatcher();
-  setProvider("groq");
+  setProvider(currentProvider);
   setTimeout(autoStartChat, 1000);
 });
 
@@ -74,12 +81,15 @@ async function checkStatus() {
       dot.className  = "status-dot error";
       text.textContent = "Configurar API Key";
       document.getElementById("api-key-overlay").classList.remove("hidden");
+      const provLabels = { gemini: "Google Gemini", groq: "Groq", openrouter: "OpenRouter" };
+      const provHints = {
+        gemini: "Consíguela gratis en https://aistudio.google.com/",
+        groq: "Consíguela en https://console.groq.com/keys",
+        openrouter: "Consíguela en https://openrouter.ai/keys",
+      };
       document.getElementById("api-key-prompt").textContent =
-        `Introduce tu API Key de ${currentProvider === "groq" ? "Groq" : "Google Gemini"} para usar Skoll.`;
-      document.getElementById("api-key-hint").textContent =
-        currentProvider === "groq"
-          ? "Consíguela en https://console.groq.com/keys"
-          : "Consíguela gratis en https://aistudio.google.com/";
+        `Introduce tu API Key de ${provLabels[currentProvider] || currentProvider} para usar Skoll.`;
+      document.getElementById("api-key-hint").textContent = provHints[currentProvider] || "";
     }
   } catch {
     dot.className  = "status-dot error";
@@ -96,8 +106,9 @@ async function saveApiKey() {
   btn.disabled = true;
   btn.textContent = "Conectando...";
   error.classList.add("hidden");
+  const provLabels = { gemini: "Google Gemini", groq: "Groq", openrouter: "OpenRouter" };
   document.getElementById("api-key-prompt").textContent =
-    `Introduce tu API Key de ${currentProvider === "groq" ? "Groq" : "Google Gemini"} para usar Skoll.`;
+    `Introduce tu API Key de ${provLabels[currentProvider] || currentProvider} para usar Skoll.`;
   try {
     const res = await fetch("/api/configure-key", {
       method: "POST",
@@ -159,12 +170,15 @@ function setProvider(provider) {
     setTimeout(autoStartChat, 500);
   }
   // Update overlay hint
+  const provLabels = { gemini: "Google Gemini", groq: "Groq", openrouter: "OpenRouter" };
+  const provHints = {
+    gemini: "Consíguela gratis en https://aistudio.google.com/",
+    groq: "Consíguela en https://console.groq.com/keys",
+    openrouter: "Consíguela en https://openrouter.ai/keys",
+  };
   document.getElementById("api-key-prompt").textContent =
-    `Introduce tu API Key de ${provider === "groq" ? "Groq" : "Google Gemini"} para usar Skoll.`;
-  document.getElementById("api-key-hint").textContent =
-    provider === "groq"
-      ? "Consíguela en https://console.groq.com/keys"
-      : "Consíguela gratis en https://aistudio.google.com/";
+    `Introduce tu API Key de ${provLabels[provider] || provider} para usar Skoll.`;
+  document.getElementById("api-key-hint").textContent = provHints[provider] || "";
 }
 
 function getModel() {
@@ -203,7 +217,7 @@ function restartChat() {
 function updateStatusLabel() {
   const el = document.getElementById("status-text");
   const badge = document.getElementById("model-badge");
-  const prov = currentProvider === "groq" ? "Groq" : "Gemini";
+  const prov = { gemini: "Gemini", groq: "Groq", openrouter: "OpenRouter" }[currentProvider] || currentProvider;
   const label = `${prov} · ${getModel()}`;
   if (el) {
     el.textContent = chatSessionId ? label : "API conectada";
@@ -430,7 +444,8 @@ async function startChat() {
 
     updateStatusLabel();
     showToast("💬 Sesión de chat iniciada con " + data.model, "success");
-    appendSystemMsg(`🛡️ Sesión iniciada con ${data.provider === "groq" ? "Groq" : "Gemini"} (${data.model}). Soy Skoll con metodología RAPTOR activada. ¿En qué puedo ayudarte hoy?`);
+    const provLabel = { gemini: "Gemini", groq: "Groq", openrouter: "OpenRouter" }[data.provider] || data.provider;
+    appendSystemMsg(`🛡️ Sesión iniciada con ${provLabel} (${data.model}). Soy Skoll con metodología RAPTOR activada. ¿En qué puedo ayudarte hoy?`);
   } catch (e) {
     showToast("Error al iniciar chat: " + e.message, "error");
     btn.disabled = false;

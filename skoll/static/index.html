@@ -52,8 +52,9 @@
       <div class="provider-select-wrapper">
         <label for="global-provider">Proveedor</label>
         <div class="provider-toggle">
-          <button class="toggle-btn active" id="prov-gemini" onclick="setProvider('gemini')">Gemini</button>
+          <button class="toggle-btn" id="prov-gemini" onclick="setProvider('gemini')">Gemini</button>
           <button class="toggle-btn" id="prov-groq" onclick="setProvider('groq')">Groq</button>
+          <button class="toggle-btn active" id="prov-openrouter" onclick="setProvider('openrouter')">OpenRouter</button>
         </div>
       </div>
       <div class="model-select-wrapper">
@@ -177,7 +178,7 @@
       <div class="api-key-modal-icon">🔑</div>
       <h2>Configurar API Key</h2>
       <p id="api-key-prompt">Introduce tu API Key para usar Skoll.</p>
-      <p class="api-key-hint" id="api-key-hint">Selecciona un proveedor (Gemini o Groq) en el panel lateral.</p>
+      <p class="api-key-hint" id="api-key-hint">Selecciona un proveedor en el panel lateral.</p>
       <input type="text" id="api-key-input" class="text-input" placeholder="AIzaSy..." />
       <button class="btn btn-primary" id="api-key-btn" onclick="saveApiKey()">Guardar y conectar</button>
       <p class="api-key-error hidden" id="api-key-error">API Key inválida. Intenta de nuevo.</p>

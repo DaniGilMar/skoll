@@ -168,4 +168,7 @@ def crear_cliente(provider: str = "groq", api_key: str | None = None):
     p = provider.lower()
     if p == "groq":
         return GroqClient(api_key=api_key)
+    if p == "openrouter":
+        from skoll.client_openrouter import OpenRouterClient
+        return OpenRouterClient(api_key=api_key)
     return GeminiClient(api_key=api_key)

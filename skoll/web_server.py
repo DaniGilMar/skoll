@@ -57,7 +57,11 @@ _groq_api_key: str = ""
 
 def _resolve_provider(provider: str | None = None) -> str:
     p = (provider or os.getenv("AI_PROVIDER") or DEFAULT_PROVIDER).lower()
-    return "groq" if p == "groq" else "gemini"
+    if p == "groq":
+        return "groq"
+    if p == "openrouter":
+        return "openrouter"
+    return "gemini"
 
 
 def _resolve_model(provider: str, model: str | None = None) -> str:
@@ -79,14 +83,21 @@ def get_client(provider: str = "gemini"):
             return crear_cliente(provider="groq", api_key=key)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error al conectar con Groq: {str(e)}")
-    else:
-        key = _gemini_api_key or os.getenv("GEMINI_API_KEY") or ""
+    if p == "openrouter":
+        key = os.getenv("OPENROUTER_API_KEY") or ""
         if not key:
-            raise HTTPException(status_code=500, detail="API Key de Gemini no configurada.")
+            raise HTTPException(status_code=500, detail="API Key de OpenRouter no configurada.")
         try:
-            return crear_cliente(provider="gemini", api_key=key)
+            return crear_cliente(provider="openrouter", api_key=key)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error al conectar con Gemini: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error al conectar con OpenRouter: {str(e)}")
+    key = _gemini_api_key or os.getenv("GEMINI_API_KEY") or ""
+    if not key:
+        raise HTTPException(status_code=500, detail="API Key de Gemini no configurada.")
+    try:
+        return crear_cliente(provider="gemini", api_key=key)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al conectar con Gemini: {str(e)}")
 
 
 async def sse_stream(prompt: str, model: str, client):
@@ -128,11 +139,13 @@ async def root():
 async def status():
     gemini_ok = bool(_gemini_api_key or os.getenv("GEMINI_API_KEY"))
     groq_ok = bool(_groq_api_key or os.getenv("GROQ_API_KEY"))
+    openrouter_ok = bool(os.getenv("OPENROUTER_API_KEY"))
     return {
         "status": "ok",
-        "api_key_configured": gemini_ok or groq_ok,
+        "api_key_configured": gemini_ok or groq_ok or openrouter_ok,
         "gemini_configured": gemini_ok,
         "groq_configured": groq_ok,
+        "openrouter_configured": openrouter_ok,
     }
 
 

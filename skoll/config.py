@@ -6,6 +6,9 @@ DEFAULT_PROVIDER = os.getenv("AI_PROVIDER", "gemini")
 # Modelo Gemini por defecto (fallback si Groq no está disponible)
 DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
+# Modelo OpenRouter por defecto
+DEFAULT_OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat")
+
 # Modelo Groq — multi-model support (main + fast para tareas simples)
 GROQ_MODELS = {
     "llama-3.3-70b-versatile": "llama-3.3-70b-versatile",
@@ -28,6 +31,8 @@ def get_fast_model(provider: str | None = None) -> str:
     p = (provider or DEFAULT_PROVIDER).lower()
     if p == "groq":
         return GROQ_FAST_MODEL
+    if p == "openrouter":
+        return "microsoft/phi-4"
     return DEFAULT_GEMINI_MODEL
 
 
@@ -35,6 +40,8 @@ def get_default_model(provider: str | None = None) -> str:
     p = (provider or DEFAULT_PROVIDER).lower()
     if p == "groq":
         return DEFAULT_GROQ_MODEL
+    if p == "openrouter":
+        return DEFAULT_OPENROUTER_MODEL
     return DEFAULT_GEMINI_MODEL
 
 # Prompts de Sistema inspirados en RAPTOR y localizados a Español
