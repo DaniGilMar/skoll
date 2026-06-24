@@ -21,7 +21,8 @@ class KatanaEngine(BaseEngine):
                 error="katana not found. Install: go install github.com/projectdiscovery/katana/cmd/katana@latest",
             )
 
-        args = ["-u", target, "-j", "-silent", "-jc"]
+        url = kwargs.get("url", target)
+        args = ["-u", url, "-j", "-silent", "-jc"]
         args.extend(["-d", str(kwargs.get("depth", 3))])
         args.extend(["-f", "qurl"])
         if kwargs.get("known_files"):
@@ -32,7 +33,7 @@ class KatanaEngine(BaseEngine):
             args.append("-headless")
         if kwargs.get("rate_limit"):
             args.extend(["-rl", str(kwargs["rate_limit"])])
-        tout = kwargs.get("timeout", 30)
+        tout = kwargs.get("timeout", 60)
         args.extend(["-timeout", str(tout)])
 
         try:
@@ -50,7 +51,7 @@ class KatanaEngine(BaseEngine):
             )
         except subprocess.TimeoutExpired:
             return EngineResult(
-                success=False, raw_output="", summary="katana: timeout",
+                success=False, raw_output="", summary=f"katana: timeout ({tout}s), no endpoints",
                 error=f"Timeout ({tout}s)",
             )
         except FileNotFoundError:

@@ -26,7 +26,8 @@ class HttpxEngine(BaseEngine):
                 error="httpx not found. Install: go install github.com/projectdiscovery/httpx/cmd/httpx@latest",
             )
 
-        args = ["-u", target, "-j", "-silent", "-sc", "-title", "-td"]
+        url = kwargs.get("url", target)
+        args = ["-u", url, "-j", "-silent", "-sc", "-title", "-td"]
         if kwargs.get("follow_redirects"):
             args.append("-follow-redirects")
         if kwargs.get("threads"):

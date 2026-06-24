@@ -105,7 +105,7 @@ class PipelineOrchestrator:
             # Load context from state store
             state = self.store.load()
             context = state.get("context", {})
-            context.setdefault("target_ip", self.target)
+            context["target_ip"] = self.target
 
             # Check if phase should be skipped
             skip, reason = self.router.should_skip(phase_name, context)

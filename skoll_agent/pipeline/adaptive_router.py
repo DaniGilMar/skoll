@@ -55,33 +55,39 @@ class AdaptiveRouter:
             fallback=list(self.ALWAYS_FALLBACK.get("recon", [])),
         )
 
+    WEB_TOOLS = {"httpx", "katana", "gobuster"}
+
     def _route_analyze(self, ctx: dict) -> PhasePlan:
         open_ports = ctx.get("open_ports", [])
         if not open_ports:
             return PhasePlan(skip=True, skip_reason="No open ports to analyze")
 
         tools: list[ToolPlan] = []
+        ip = ctx.get("target_ip", "127.0.0.1")
 
         for p in open_ports:
             svc = (p.get("service") or "").lower()
             port = p.get("port", 0)
+            is_web = svc in ("http", "https", "http-proxy") or port in (80, 443, 8080, 8443)
             for tb in tools_for_service(svc) if svc else tools_for_port(port):
-                if tb.tool_name == "gobuster":
-                    url = f"http://{ctx.get('target_ip', '127.0.0.1')}:{port}"
-                    tools.append(ToolPlan("gobuster", dict(tb.params, url=url)))
-                else:
-                    tools.append(ToolPlan(tb.tool_name, dict(tb.params)))
+                tname = tb.tool_name
+                params = dict(tb.params)
+                if is_web and tname in self.WEB_TOOLS:
+                    scheme = "https" if svc == "https" or port in (443, 8443) else "http"
+                    params["url"] = f"{scheme}://{ip}:{port}"
+                tools.append(ToolPlan(tname, params))
 
         open_port_nums = sorted({p.get("port", 0) for p in open_ports})
         tools.append(ToolPlan("nmap", {"ports": ",".join(str(n) for n in open_port_nums), "service_scan": True, "timeout": 90}))
 
-        # Deduplicate by (tool_name, url) — gobuster runs per port, others run once
+        # Dedup: web tools run per-port, others run once
         seen: set[str] = set()
         deduped: list[ToolPlan] = []
         for t in tools:
-            key = t.tool_name
-            if t.tool_name == "gobuster":
-                key = f"gobuster:{t.params.get('url', '')}"
+            if t.tool_name in self.WEB_TOOLS:
+                key = f"{t.tool_name}:{t.params.get('url', '')}"
+            else:
+                key = t.tool_name
             if key not in seen:
                 seen.add(key)
                 deduped.append(t)

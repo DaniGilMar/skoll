@@ -13,9 +13,9 @@ class ToolBinding:
 # Map from service name (lowercase, as reported by nmap/naabu)
 # to the list of tools that should be run when that service is detected.
 SERVICE_MAP: dict[str, list[ToolBinding]] = {
-    "http":          [ToolBinding("httpx"), ToolBinding("katana", {"depth": 3}), ToolBinding("gobuster", {"wordlist": "/usr/share/wordlists/dirb/common.txt", "timeout": 120})],
-    "https":         [ToolBinding("httpx"), ToolBinding("katana", {"depth": 3}), ToolBinding("gobuster", {"wordlist": "/usr/share/wordlists/dirb/common.txt", "timeout": 120})],
-    "http-proxy":    [ToolBinding("httpx"), ToolBinding("katana", {"depth": 3}), ToolBinding("gobuster", {"wordlist": "/usr/share/wordlists/dirb/common.txt", "timeout": 120})],
+    "http":          [ToolBinding("httpx"), ToolBinding("katana", {"depth": 1}), ToolBinding("gobuster", {"wordlist": "/usr/share/wordlists/dirb/common.txt", "timeout": 120})],
+    "https":         [ToolBinding("httpx"), ToolBinding("katana", {"depth": 1}), ToolBinding("gobuster", {"wordlist": "/usr/share/wordlists/dirb/common.txt", "timeout": 120})],
+    "http-proxy":    [ToolBinding("httpx"), ToolBinding("katana", {"depth": 1}), ToolBinding("gobuster", {"wordlist": "/usr/share/wordlists/dirb/common.txt", "timeout": 120})],
     "unknown":       [ToolBinding("httpx")],
     # Databases
     "mysql":         [ToolBinding("mysql", {"timeout": 30})],
