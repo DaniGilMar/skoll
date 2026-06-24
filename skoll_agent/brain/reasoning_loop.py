@@ -16,7 +16,8 @@ class ReasoningLoop:
     def __init__(self, llm_client: Any, project_path: str,
                  event_callback: EventCallback | None = None,
                  session_id: str | None = None,
-                 is_network_target: bool = False):
+                 is_network_target: bool = False,
+                 resume: bool = False):
         self.is_network = is_network_target
         self.project_path = project_path
         self.orchestrator = PipelineOrchestrator(
@@ -25,6 +26,7 @@ class ReasoningLoop:
             llm_client=llm_client,
             event_callback=event_callback,
             session_id=session_id,
+            resume=resume,
         )
         self.state = AgentState(project_path=project_path)
         self.session_mgr = SessionManager()

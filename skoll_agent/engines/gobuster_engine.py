@@ -20,8 +20,9 @@ class GobusterEngine(BaseEngine):
         extensions = kwargs.get("extensions", ".php,txt,html")
         threads = int(kwargs.get("threads", 30))
         timeout_s = kwargs.get("http_timeout", 30)
-        args = ["gobuster", mode, "-u", target, "-w", wordlist,
-                "-t", str(threads), "-x", extensions, "-o", "gusbuster.txt",
+        url = kwargs.get("url", target)
+        args = ["gobuster", mode, "-u", url, "-w", wordlist,
+                "-t", str(threads), "-x", extensions,
                 "--timeout", f"{timeout_s}s", "--retry"]
 
         _prog_re = re.compile(r"Progress:\s*(\d+)\s*/\s*(\d+)")

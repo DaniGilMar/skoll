@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
 from typing import Any
 
 from skoll_agent.engines.base_engine import BaseEngine, EngineResult
-from skoll_agent.workers import KatanaWorker
 
 
 class KatanaEngine(BaseEngine):
@@ -12,19 +14,57 @@ class KatanaEngine(BaseEngine):
     capabilities = ["web_scan", "crawling", "enumeration"]
 
     def scan(self, target: str, **kwargs: Any) -> EngineResult:
-        worker = KatanaWorker()
-        result = worker.run(target, **kwargs)
-        findings = self.parse_output(result.raw_output) if result.success else []
-        return EngineResult(
-            success=result.success,
-            raw_output=result.raw_output,
-            findings=findings,
-            summary=f"katana: {len(findings)} endpoints en {target}",
-            error=result.error,
-        )
+        binary = shutil.which("katana")
+        if not binary:
+            return EngineResult(
+                success=False, raw_output="", summary="katana: not installed",
+                error="katana not found. Install: go install github.com/projectdiscovery/katana/cmd/katana@latest",
+            )
+
+        args = ["-u", target, "-j", "-silent", "-jc"]
+        args.extend(["-d", str(kwargs.get("depth", 3))])
+        args.extend(["-f", "qurl"])
+        if kwargs.get("known_files"):
+            args.append("-known-files")
+        if kwargs.get("no_crawl"):
+            args.append("-no-crawl")
+        if kwargs.get("headless"):
+            args.append("-headless")
+        if kwargs.get("rate_limit"):
+            args.extend(["-rl", str(kwargs["rate_limit"])])
+        tout = kwargs.get("timeout", 30)
+        args.extend(["-timeout", str(tout)])
+
+        try:
+            result = subprocess.run(
+                [binary, *args], capture_output=True, text=True,
+                timeout=tout,
+            )
+            stdout = result.stdout.strip()
+            if not stdout:
+                return EngineResult(success=True, raw_output="", summary="katana: no endpoints found")
+            findings = self.parse_output(stdout)
+            return EngineResult(
+                success=True, raw_output=stdout, findings=findings,
+                summary=f"katana: {len(findings)} endpoints en {target}",
+            )
+        except subprocess.TimeoutExpired:
+            return EngineResult(
+                success=False, raw_output="", summary="katana: timeout",
+                error=f"Timeout ({tout}s)",
+            )
+        except FileNotFoundError:
+            return EngineResult(
+                success=False, raw_output="", summary="katana: not installed",
+                error="Install katana",
+            )
+        except Exception as e:
+            return EngineResult(
+                success=False, raw_output="", summary=f"katana: {e}",
+                error=str(e),
+            )
 
     def parse_output(self, raw_output: str) -> list[dict[str, Any]]:
-        import json
         findings = []
         for line in raw_output.strip().split("\n"):
             line = line.strip()

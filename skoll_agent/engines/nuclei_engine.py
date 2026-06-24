@@ -14,18 +14,24 @@ class NucleiEngine(BaseEngine):
     capabilities = ["vuln_scan", "template_scan", "cve_scan", "web_scan"]
 
     def scan(self, target: str, **kwargs: Any) -> EngineResult:
-        args = ["nuclei", "-u", target, "-json", "-silent", "-rl", "50"]
+        args = ["nuclei", "-u", target, "-j", "-silent", "-rl", "150"]
+        sev = kwargs.get("severity", "medium,high,critical")
+        if sev:
+            args.extend(["-severity", sev])
         if kwargs.get("templates"):
             args.extend(["-t", kwargs["templates"]])
-        if kwargs.get("severity"):
-            args.extend(["-severity", kwargs["severity"]])
         if kwargs.get("tags"):
             args.extend(["-tags", kwargs["tags"]])
         if kwargs.get("rate_limit"):
             args.extend(["-rl", str(kwargs["rate_limit"])])
+        if kwargs.get("cve"):
+            from datetime import datetime
+            year = kwargs["cve"].split("-")[1] if "-" in kwargs["cve"] else ""
+            if year:
+                args.extend(["-t", f"cves/{year}"])
 
         try:
-            result = subprocess.run(args, capture_output=True, text=True, timeout=kwargs.get("timeout", 300))
+            result = subprocess.run(args, capture_output=True, text=True, timeout=kwargs.get("timeout", 120))
             raw = result.stdout.strip()
             if not raw:
                 return EngineResult(success=True, raw_output="", summary="nuclei: no vulnerabilities found")
@@ -35,7 +41,7 @@ class NucleiEngine(BaseEngine):
                 summary=f"nuclei: {len(findings)} vulnerabilities on {target}",
             )
         except subprocess.TimeoutExpired:
-            return EngineResult(success=False, raw_output="", summary="nuclei: timeout", error="Timeout (300s)")
+            return EngineResult(success=False, raw_output="", summary="nuclei: timeout", error="Timeout (120s)")
         except FileNotFoundError:
             return EngineResult(success=False, raw_output="", summary="nuclei: not installed", error="Install nuclei")
         except Exception as e:

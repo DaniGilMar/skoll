@@ -13,14 +13,11 @@ class NiktoEngine(BaseEngine):
     capabilities = ["web_vuln_scan", "web_security", "cgi_scan"]
 
     def scan(self, target: str, **kwargs: Any) -> EngineResult:
-        timeout = kwargs.get("timeout", 60)
+        timeout = kwargs.get("timeout", 600)
         args = [
             "nikto", "-h", target,
             "-C", "all",
             "-Tuning", "1234589abcde",
-            "-maxtime", "15m",
-            "-o", "nikto_thm.txt",
-            "-Format", "txt",
             "-nointeractive", "-nocheck",
         ]
         if kwargs.get("ssl"):

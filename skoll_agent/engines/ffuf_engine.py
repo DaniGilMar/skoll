@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import tempfile
 from typing import Any
 
 from skoll_agent.engines.base_engine import BaseEngine, EngineResult
@@ -21,16 +23,17 @@ class FfufEngine(BaseEngine):
         timeout_s = int(kwargs.get("http_timeout", 5))
 
         url = target.rstrip("/") + "/FUZZ"
-        out_file = "/tmp/ffuf_output.json"
-        args = [
-            "ffuf", "-u", url, "-w", wordlist,
-            "-t", str(threads), "-rate", str(rate_limit),
-            "-timeout", str(timeout_s), "-ac",
-            "-e", extensions, "-of", "json", "-o", out_file,
-            "-c", "-s",
-        ]
-
+        fd, out_file = tempfile.mkstemp(suffix=".json", prefix="ffuf_")
+        os.close(fd)
         try:
+            args = [
+                "ffuf", "-u", url, "-w", wordlist,
+                "-t", str(threads), "-rate", str(rate_limit),
+                "-timeout", str(timeout_s), "-ac",
+                "-e", extensions, "-of", "json", "-o", out_file,
+                "-c", "-s",
+            ]
+
             result = subprocess.run(
                 args, capture_output=True, text=True,
                 timeout=kwargs.get("timeout", 300),
@@ -79,6 +82,11 @@ class FfufEngine(BaseEngine):
             return EngineResult(success=False, raw_output="", summary="ffuf: not installed", error="Install ffuf")
         except Exception as e:
             return EngineResult(success=False, raw_output="", summary=f"ffuf: {e}", error=str(e))
+        finally:
+            try:
+                os.unlink(out_file)
+            except OSError:
+                pass
 
     def parse_output(self, raw_output: str) -> list[dict[str, Any]]:
         return []

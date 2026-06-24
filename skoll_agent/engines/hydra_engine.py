@@ -54,7 +54,7 @@ class HydraEngine(BaseEngine):
                 summary=f"hydra: {len(findings)} credentials found on {target}",
             )
         except subprocess.TimeoutExpired:
-            return EngineResult(success=False, raw_output="", summary="hydra: timeout", error="Timeout (60s)")
+            return EngineResult(success=False, raw_output="", summary="hydra: timeout", error="Timeout")
         except FileNotFoundError:
             return EngineResult(success=False, raw_output="", summary="hydra: not installed", error="Install hydra")
         except Exception as e:

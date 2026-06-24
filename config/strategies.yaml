@@ -1,0 +1,118 @@
+# Skoll Exploit Strategies
+# Each vulnerability type maps to one or more exploitation strategies.
+# The router picks the lowest-risk strategy that meets prerequisites.
+
+strategies:
+  # ── SMB ─────────────────────────────────────────────────────
+  SMB_ANONYMOUS_ACCESS:
+    - strategy_id: "smb_download_files"
+      executor: "smb"
+      params:
+        action: "download"
+        timeout: 60
+      prerequisites: []
+      risk: "medium"
+      description: "Download files from anonymous SMB share"
+
+    - strategy_id: "smb_msf_enum"
+      executor: "msfconsole"
+      params:
+        services:
+          - service: "smb"
+            port: 445
+        timeout: 120
+      prerequisites: []
+      risk: "low"
+      description: "Metasploit SMB enumeration modules"
+
+    - strategy_id: "smb_enum4linux"
+      executor: "enum4linux"
+      params:
+        timeout: 60
+      prerequisites: []
+      risk: "low"
+      description: "enum4linux enumeration"
+
+  # ── AJP / Ghostcat ──────────────────────────────────────────
+  GHOSTCAT:
+    - strategy_id: "ghostcat_msf"
+      executor: "msfconsole"
+      params:
+        services:
+          - service: "ajp13"
+            port: 8009
+        timeout: 60
+      prerequisites:
+        - "ajp_port_open"
+      risk: "medium"
+      description: "CVE-2020-1938 AJP file read via Metasploit"
+
+  # ── SQL Injection ────────────────────────────────────────────
+  SQL_INJECTION:
+    - strategy_id: "sqli_sqlmap"
+      executor: "sqlmap"
+      params:
+        batch: true
+        timeout: 300
+      prerequisites: []
+      risk: "medium"
+      description: "sqlmap automated SQL injection"
+
+  # ── FTP ─────────────────────────────────────────────────────
+  FTP_ANONYMOUS:
+    - strategy_id: "ftp_anonymous_download"
+      executor: "ftp"
+      params:
+        timeout: 30
+      prerequisites: []
+      risk: "medium"
+      description: "Download files from anonymous FTP"
+
+  # ── SSH ─────────────────────────────────────────────────────
+  SSH_OPEN:
+    - strategy_id: "ssh_hydra_bruteforce"
+      executor: "hydra"
+      params:
+        service: "ssh"
+        timeout: 60
+      prerequisites: []
+      risk: "medium"
+      description: "SSH brute force with hydra"
+
+  # ── Web / HTTP ──────────────────────────────────────────────
+  WEB_SERVICE:
+    - strategy_id: "web_nuclei"
+      executor: "nuclei"
+      params:
+        severity: "medium,high,critical"
+        timeout: 120
+      prerequisites: []
+      risk: "low"
+      description: "Nuclei vulnerability scanner"
+
+    - strategy_id: "web_httpx_recon"
+      executor: "httpx"
+      params:
+        timeout: 30
+      prerequisites: []
+      risk: "low"
+      description: "HTTP probing and fingerprinting"
+
+  # ── Default / Generic ──────────────────────────────────────
+  CREDENTIALS_FOUND:
+    - strategy_id: "creds_hydra"
+      executor: "hydra"
+      params:
+        timeout: 120
+      prerequisites: []
+      risk: "medium"
+      description: "Hydra brute force with discovered credentials"
+
+  RCE_VULNERABILITY:
+    - strategy_id: "rce_cve2msf"
+      executor: "cve2msf"
+      params:
+        timeout: 120
+      prerequisites: []
+      risk: "high"
+      description: "CVE to Metasploit exploit dispatcher"

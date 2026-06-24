@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import tempfile
 from typing import Any
 
 from skoll_agent.engines.base_engine import BaseEngine, EngineResult
@@ -17,7 +19,8 @@ class MasscanEngine(BaseEngine):
         rate = int(kwargs.get("rate", 50000))
         timeout_s = int(kwargs.get("timeout", 120))
 
-        out_file = "/tmp/masscan_output.json"
+        fd, out_file = tempfile.mkstemp(suffix=".json", prefix="masscan_")
+        os.close(fd)
         args = [
             "sudo", "masscan", target, "-p", ports,
             "--rate", str(rate), "-oJ", out_file,
@@ -85,6 +88,11 @@ class MasscanEngine(BaseEngine):
             return EngineResult(success=False, raw_output="", summary="masscan: not installed", error="Install masscan")
         except Exception as e:
             return EngineResult(success=False, raw_output="", summary=f"masscan: {e}", error=str(e))
+        finally:
+            try:
+                os.unlink(out_file)
+            except OSError:
+                pass
 
     def parse_output(self, raw_output: str) -> list[dict[str, Any]]:
         return []

@@ -141,6 +141,14 @@ register_engine("redteam", RedteamEngine)
 from skoll_agent.engines.cve2msf_engine import CVE2MSFEngine
 register_engine("cve2msf", CVE2MSFEngine)
 
+# Ghostcat (CVE-2020-1938) — AJP file read
+from skoll_agent.engines.ghostcat_engine import GhostcatEngine
+register_engine("ghostcat", GhostcatEngine)
+
+# httpx — web probing / fingerprinting
+from skoll_agent.engines.httpx_engine import HttpxEngine
+register_engine("httpx", HttpxEngine)
+
 # Ragnarök workflow engine (ProjectDiscovery suite + ffuf)
 from skoll_agent.engines.ragnarok_engine import RagnarokEngine
 register_engine("ragnarok", RagnarokEngine)

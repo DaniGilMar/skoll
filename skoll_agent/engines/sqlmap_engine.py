@@ -28,7 +28,7 @@ class SqlmapEngine(BaseEngine):
             args.append("--dbs")
 
         try:
-            result = subprocess.run(args, capture_output=True, text=True, timeout=kwargs.get("timeout", 120))
+            result = subprocess.run(args, capture_output=True, text=True, timeout=kwargs.get("timeout", 600))
             raw = result.stdout + result.stderr
             if not raw.strip():
                 return EngineResult(success=True, raw_output="", summary="sqlmap: no injection found")
@@ -38,7 +38,7 @@ class SqlmapEngine(BaseEngine):
                 summary=f"sqlmap: {len(findings)} findings on {target}",
             )
         except subprocess.TimeoutExpired:
-            return EngineResult(success=False, raw_output="", summary="sqlmap: timeout", error="Timeout (300s)")
+            return EngineResult(success=False, raw_output="", summary="sqlmap: timeout", error="Timeout (600s)")
         except FileNotFoundError:
             return EngineResult(success=False, raw_output="", summary="sqlmap: not installed", error="Install sqlmap")
         except Exception as e:
