@@ -66,7 +66,10 @@ class KatanaEngine(BaseEngine):
                 continue
             try:
                 obj = json.loads(line)
-                url = obj.get("url", obj.get("request", ""))
+                req = obj.get("request", {})
+                url = req.get("endpoint", "") if isinstance(req, dict) else ""
+                if not url:
+                    url = obj.get("url", "")
                 if url:
                     endpoint = url.split("?")[0]
                     findings.append({
