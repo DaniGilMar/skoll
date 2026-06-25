@@ -140,13 +140,14 @@ class PipelineOrchestrator:
             phase_errors: list[str] = []
 
             for tool_plan in available:
+                result: list[dict] = []
                 try:
                     result = self._run_tool(tool_plan.tool_name, self.target, tool_plan.params)
-                    findings.extend(result)
                 except Exception as e:
                     msg = f"{tool_plan.tool_name}: {e}"
                     self._emit_log(f"  ⚠️ {msg}")
                     phase_errors.append(msg)
+                findings.extend(result)
 
                 # Try fallback if primary produced no findings
                 if not result and plan.fallback:

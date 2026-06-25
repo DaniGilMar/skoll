@@ -49,7 +49,7 @@ class StateStore:
         self._dir = STATE_DIR / self._hash / subdir
         self._state_path = self._dir / "state.json"
         self._findings_path = self._dir / "findings.jsonl"
-        self._existing_keys: set[tuple[str, str, str]] = set()
+        self._existing_keys: set[tuple[str, str, str, str, str]] = set()
         self._load_existing_keys()
 
     # ── public API ──────────────────────────────────────────────
@@ -72,10 +72,19 @@ class StateStore:
                 json.dump(state, f, indent=2, default=str)
             tmp.replace(self._state_path)
 
+    def _dedup_key(self, finding: dict) -> tuple[str, str, str, str, str]:
+        return (
+            str(finding.get("title", "")),
+            str(finding.get("description", "")),
+            str(finding.get("tool", "")),
+            str(finding.get("url", finding.get("file_path", ""))),
+            str(finding.get("port", "")),
+        )
+
     def append_finding(self, finding: dict) -> None:
         with self._lock():
             self._dir.mkdir(parents=True, exist_ok=True)
-            key = (str(finding.get("title", "")), str(finding.get("description", "")), str(finding.get("tool", "")))
+            key = self._dedup_key(finding)
             if key in self._existing_keys:
                 return
             self._existing_keys.add(key)
@@ -121,10 +130,11 @@ class StateStore:
         self.save(st)
 
     def resume_from(self) -> Optional[str]:
-        """Return the name of the first pending phase, or None if every phase is done."""
+        """Return the name of the first pending or failed phase, or None if every phase is done."""
         st = self.load()
         for name in PHASES:
-            if st.get("phases", {}).get(name, {}).get("status") == "pending":
+            status = st.get("phases", {}).get(name, {}).get("status", "pending")
+            if status in ("pending", "failed"):
                 return name
         return None
 
@@ -141,8 +151,7 @@ class StateStore:
                         continue
                     try:
                         finding = json.loads(line)
-                        key = (str(finding.get("title", "")), str(finding.get("description", "")), str(finding.get("tool", "")))
-                        self._existing_keys.add(key)
+                        self._existing_keys.add(self._dedup_key(finding))
                     except Exception:
                         pass
 

@@ -23,7 +23,7 @@ SERVICE_MAP: dict[str, list[ToolBinding]] = {
     "postgresql":    [ToolBinding("postgres", {"timeout": 30})],
     "postgres":      [ToolBinding("postgres", {"timeout": 30})],
     "redis":         [ToolBinding("redis", {"timeout": 30})],
-    "mongodb":       [ToolBinding("postgres", {"timeout": 30})],
+    "mongodb":       [],
     # File sharing
     "microsoft-ds":  [ToolBinding("smb"), ToolBinding("smbmap"), ToolBinding("enum4linux")],
     "netbios-ssn":   [ToolBinding("enum4linux")],

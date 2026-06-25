@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from typing import Any
 
 from skoll_agent.engines.base_engine import BaseEngine, EngineResult
@@ -23,7 +22,7 @@ class KatanaEngine(BaseEngine):
 
         url = kwargs.get("url", target)
         args = ["-u", url, "-j", "-silent", "-jc"]
-        args.extend(["-d", str(kwargs.get("depth", 3))])
+        args.extend(["-d", str(kwargs.get("depth", 1))])
         args.extend(["-f", "qurl"])
         if kwargs.get("known_files"):
             args.append("-known-files")
@@ -36,34 +35,28 @@ class KatanaEngine(BaseEngine):
         tout = kwargs.get("timeout", 60)
         args.extend(["-timeout", str(tout)])
 
-        try:
-            result = subprocess.run(
-                [binary, *args], capture_output=True, text=True,
-                timeout=tout,
-            )
-            stdout = result.stdout.strip()
-            if not stdout:
-                return EngineResult(success=True, raw_output="", summary="katana: no endpoints found")
-            findings = self.parse_output(stdout)
-            return EngineResult(
-                success=True, raw_output=stdout, findings=findings,
-                summary=f"katana: {len(findings)} endpoints en {target}",
-            )
-        except subprocess.TimeoutExpired:
-            return EngineResult(
-                success=False, raw_output="", summary=f"katana: timeout ({tout}s), no endpoints",
-                error=f"Timeout ({tout}s)",
-            )
-        except FileNotFoundError:
-            return EngineResult(
-                success=False, raw_output="", summary="katana: not installed",
-                error="Install katana",
-            )
-        except Exception as e:
-            return EngineResult(
-                success=False, raw_output="", summary=f"katana: {e}",
-                error=str(e),
-            )
+        stdout, _stderr, timed_out = self.run_subprocess(
+            [binary, *args], timeout=tout,
+        )
+        stdout = stdout.strip()
+
+        if not stdout:
+            if timed_out:
+                return EngineResult(
+                    success=False, raw_output="",
+                    summary=f"katana: timeout ({tout}s), no endpoints",
+                    error=f"Timeout ({tout}s)",
+                )
+            return EngineResult(success=True, raw_output="", summary="katana: no endpoints found")
+
+        findings = self.parse_output(stdout)
+        summary = f"katana: {len(findings)} endpoints en {target}"
+        if timed_out:
+            summary += f" (timeout, parcial)"
+        return EngineResult(
+            success=True, raw_output=stdout, findings=findings,
+            summary=summary,
+        )
 
     def parse_output(self, raw_output: str) -> list[dict[str, Any]]:
         findings = []

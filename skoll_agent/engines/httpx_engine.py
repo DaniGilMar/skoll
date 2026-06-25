@@ -2,14 +2,10 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from typing import Any
 
 from skoll_agent.engines.base_engine import BaseEngine, EngineResult
-
-TOOL_ALIASES: dict[str, list[str]] = {
-    "httpx": ["httpx-toolkit", "httpx"],
-}
+from skoll_agent.utils.dependency_checker import TOOL_ALIASES
 
 
 class HttpxEngine(BaseEngine):
@@ -33,35 +29,28 @@ class HttpxEngine(BaseEngine):
         if kwargs.get("threads"):
             args.extend(["-t", str(kwargs["threads"])])
 
-        try:
-            result = subprocess.run(
-                [binary, *args],
-                capture_output=True, text=True,
-                timeout=kwargs.get("timeout", 120),
-            )
-            stdout = result.stdout.strip()
-            if not stdout:
-                return EngineResult(success=True, raw_output="", summary="httpx: no endpoints found")
-            findings = self.parse_output(stdout)
-            return EngineResult(
-                success=True, raw_output=stdout, findings=findings,
-                summary=f"httpx: {len(findings)} endpoints on {target}",
-            )
-        except subprocess.TimeoutExpired:
-            return EngineResult(
-                success=False, raw_output="", summary="httpx: timeout",
-                error="Timeout",
-            )
-        except FileNotFoundError:
-            return EngineResult(
-                success=False, raw_output="", summary="httpx: not installed",
-                error="Install httpx",
-            )
-        except Exception as e:
-            return EngineResult(
-                success=False, raw_output="", summary=f"httpx: {e}",
-                error=str(e),
-            )
+        tout = kwargs.get("timeout", 120)
+        stdout, _stderr, timed_out = self.run_subprocess(
+            [binary, *args], timeout=tout,
+        )
+        stdout = stdout.strip()
+
+        if not stdout:
+            if timed_out:
+                return EngineResult(
+                    success=False, raw_output="", summary="httpx: timeout",
+                    error="Timeout",
+                )
+            return EngineResult(success=True, raw_output="", summary="httpx: no endpoints found")
+
+        findings = self.parse_output(stdout)
+        summary = f"httpx: {len(findings)} endpoints on {target}"
+        if timed_out:
+            summary += " (timeout, partial)"
+        return EngineResult(
+            success=True, raw_output=stdout, findings=findings,
+            summary=summary,
+        )
 
     def parse_output(self, raw_output: str) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []

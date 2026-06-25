@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 import json
 import re
 from typing import Any
@@ -25,27 +24,27 @@ class NucleiEngine(BaseEngine):
         if kwargs.get("rate_limit"):
             args.extend(["-rl", str(kwargs["rate_limit"])])
         if kwargs.get("cve"):
-            from datetime import datetime
             year = kwargs["cve"].split("-")[1] if "-" in kwargs["cve"] else ""
             if year:
                 args.extend(["-t", f"cves/{year}"])
 
-        try:
-            result = subprocess.run(args, capture_output=True, text=True, timeout=kwargs.get("timeout", 120))
-            raw = result.stdout.strip()
-            if not raw:
-                return EngineResult(success=True, raw_output="", summary="nuclei: no vulnerabilities found")
-            findings = self.parse_output(raw)
-            return EngineResult(
-                success=True, raw_output=raw, findings=findings,
-                summary=f"nuclei: {len(findings)} vulnerabilities on {target}",
-            )
-        except subprocess.TimeoutExpired:
-            return EngineResult(success=False, raw_output="", summary="nuclei: timeout", error="Timeout (120s)")
-        except FileNotFoundError:
-            return EngineResult(success=False, raw_output="", summary="nuclei: not installed", error="Install nuclei")
-        except Exception as e:
-            return EngineResult(success=False, raw_output="", summary=f"nuclei: {e}", error=str(e))
+        tout = kwargs.get("timeout", 120)
+        raw, _stderr, timed_out = self.run_subprocess(args, timeout=tout)
+        raw = raw.strip()
+
+        if not raw:
+            if timed_out:
+                return EngineResult(success=False, raw_output="", summary="nuclei: timeout", error=f"Timeout ({tout}s)")
+            return EngineResult(success=True, raw_output="", summary="nuclei: no vulnerabilities found")
+
+        findings = self.parse_output(raw)
+        summary = f"nuclei: {len(findings)} vulnerabilities on {target}"
+        if timed_out:
+            summary += " (timeout, partial)"
+        return EngineResult(
+            success=True, raw_output=raw, findings=findings,
+            summary=summary,
+        )
 
     def parse_output(self, raw_output: str) -> list[dict[str, Any]]:
         findings = []

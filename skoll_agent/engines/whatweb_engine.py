@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 import re
 from typing import Any
 
@@ -20,24 +19,24 @@ class WhatWebEngine(BaseEngine):
         if kwargs.get("aggression"):
             args.append(f"--aggression={kwargs['aggression']}")
 
-        try:
-            result = subprocess.run(args, capture_output=True, text=True, timeout=kwargs.get("timeout", 120))
-            raw = _ANSI_RE.sub('', result.stdout).strip()
-            if not raw:
-                return EngineResult(success=True, raw_output="", summary="whatweb: no technologies detected")
-            findings = self.parse_output(raw)
-            summary_line = self._extract_summary(raw)
-            raw = summary_line  # store only the compact summary line, not the verbose output
-            return EngineResult(
-                success=True, raw_output=summary_line, findings=findings,
-                summary=f"whatweb: {len(findings)} technologies on {target}",
-            )
-        except subprocess.TimeoutExpired:
-            return EngineResult(success=False, raw_output="", summary="whatweb: timeout", error="Timeout (120s)")
-        except FileNotFoundError:
-            return EngineResult(success=False, raw_output="", summary="whatweb: not installed", error="Install whatweb")
-        except Exception as e:
-            return EngineResult(success=False, raw_output="", summary=f"whatweb: {e}", error=str(e))
+        tout = kwargs.get("timeout", 120)
+        raw, _stderr, timed_out = self.run_subprocess(args, timeout=tout)
+        raw = _ANSI_RE.sub('', raw).strip()
+
+        if not raw:
+            if timed_out:
+                return EngineResult(success=False, raw_output="", summary="whatweb: timeout", error=f"Timeout ({tout}s)")
+            return EngineResult(success=True, raw_output="", summary="whatweb: no technologies detected")
+
+        findings = self.parse_output(raw)
+        summary_line = self._extract_summary(raw)
+        summary = f"whatweb: {len(findings)} technologies on {target}"
+        if timed_out:
+            summary += " (timeout, partial)"
+        return EngineResult(
+            success=True, raw_output=summary_line, findings=findings,
+            summary=summary,
+        )
 
     def _extract_summary(self, clean_output: str) -> str:
         """Extract the one-line summary from whatweb output (last non-header line)."""
